@@ -5,3 +5,4 @@ assets/*
 *.bp
 
 *.DS_STORE
+*.pyc

@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 from commands.chess_gif import pgn_to_gif
+from commands.factorio_blueprint import BlueprintImageConstructor
 import os
 
 # Replace 'YOUR_BOT_TOKEN' with your actual bot token
@@ -41,6 +42,14 @@ async def chess_gif(ctx, *pgn):
     except:
         await ctx.send("Looks like there was something wrong with that PGN you posted... fix it and try again!")
         log('chess', 'not a pgn: {}'.format(' '.join(pgn)))
+
+@bot.command(name='fbp', help='Post a factorio blueprint and receive an image of the blueprint (WIP)')
+async def fbp(ctx, *blueprint):
+    with open('commands/factorio.bp', 'w+') as f:
+        f.write(' '.join(blueprint))
+    imgs = BlueprintImageConstructor('commands/factorio.bp', 'assets').get_image_files()
+    for img in imgs:
+        await ctx.send(file=discord.File(os.path.join('commands', img)))
 
 # Event handler for when a message is received
 @bot.event
