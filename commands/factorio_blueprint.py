@@ -12,13 +12,16 @@ from PIL import Image
 
 class BlueprintImageConstructor:
 
-    def __init__(self, bp_file):
+    def __init__(self, bp_file, assets_dir):
+        self.assets_dir = assets_dir
         self.bp_file = bp_file
 
         blueprints = self.decode_factorio_blueprint()
+        
+        self.imgs = [self.create_image(blueprint) for blueprint in blueprints]
 
-        for blueprint in blueprints:
-            self.create_image(blueprint)
+    def get_image_files(self):
+        return self.imgs
 
     def download_image(self, url, save_directory, filename):
         # Ensure the save directory exists
@@ -45,12 +48,12 @@ class BlueprintImageConstructor:
         # scraping :^)
         fname = asset_name[0].upper() + asset_name[1:].lower().replace('-', '_') + '.png'
 
-        if fname not in os.listdir(os.path.join(DIR_ASSETS, 'factorio')):
+        if fname not in os.listdir(os.path.join(self.assets_dir, 'factorio')):
             image_url = "https://wiki.factorio.com/images/{}".format(fname) # Fast_transport_belt
 
-            self.download_image(image_url, os.path.join(DIR_ASSETS, 'factorio'), fname)
+            self.download_image(image_url, os.path.join(self.assets_dir, 'factorio'), fname)
         
-        return Image.open(os.path.join(DIR_ASSETS, 'factorio', fname))
+        return Image.open(os.path.join(self.assets_dir, 'factorio', fname))
 
     def decode_factorio_blueprint(self):
 
@@ -142,9 +145,11 @@ class BlueprintImageConstructor:
 
             result.paste(img, (px * int(x - xmin), px * int(y - ymin)), img)
 
-        result.show()
+        # result.show()
 
         result.save('factorio_bp.png')
+
+        return 'factorio_bp.png'
 
 
         
@@ -156,7 +161,4 @@ class BlueprintImageConstructor:
 
 if __name__ == "__main__":
 
-    DIR_ASSETS = os.path.join('..', 'assets')
-
-
-    bp_constructor = BlueprintImageConstructor('factorio.bp')
+    bp_constructor = BlueprintImageConstructor('factorio.bp', os.path.join('..', 'assets'))
