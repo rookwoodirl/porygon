@@ -70,8 +70,8 @@ class BlueprintImageConstructor:
         # break up blueprints because they can be huge
         blueprints = []
         # multiple
-        if 'book' in blueprint_data:
-            blueprint_data = blueprint_data['book']['blueprints']
+        if 'blueprint_book' in blueprint_data:
+            blueprint_data = {i : b for i, b in zip(range(len(blueprint_data['blueprint_book']['blueprints'])), blueprint_data['blueprint_book']['blueprints'])}
         # single
         else:
             blueprint_data = {0 : blueprint_data}
@@ -88,6 +88,13 @@ class BlueprintImageConstructor:
         return blueprints
     
     def create_image(self, blueprint_path):
+        sizes = {
+            'beacon' : (3, 3),
+            'substation' : (2, 2),
+            'assembling-machine' : (3, 3),
+            'assembling-machine-2' : (3, 3),
+            'assembling-machine-3' : (3, 3)
+        }
         
         # Load the JSON string into a Python dictionary
         with open(blueprint_path, 'r') as f:
@@ -124,8 +131,15 @@ class BlueprintImageConstructor:
         for name, x, y, direction in image_array:
             # Open the image to be pasted
             img = self.get_asset(name)
-            print(px * int(x - xmin), px * int(y - ymin))
             # Paste the image onto the background at the specified position
+
+            if name in sizes:
+                j, k = sizes[name]
+                img = img.resize((img.width * j, img.height * k))
+                x, y = x - j // 2, y - k // 2
+
+            img = img.rotate(45 * direction)
+
             result.paste(img, (px * int(x - xmin), px * int(y - ymin)), img)
 
         result.show()
