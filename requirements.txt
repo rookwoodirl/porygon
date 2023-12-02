@@ -1,0 +1,6 @@
+discord
+pillow
+python-chess
+cairosvg
+deflate
+zstandard
