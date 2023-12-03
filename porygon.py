@@ -5,7 +5,7 @@ from commands.factorio_blueprint import BlueprintImageConstructor
 import os
 
 # Replace 'YOUR_BOT_TOKEN' with your actual bot token
-with open('discord.key', 'r') as f:
+with open(os.path.join('api_keys', 'discord.key'), 'r') as f:
     BOT_TOKEN = f.readline().strip()
 
 def log(command, text):
@@ -49,7 +49,7 @@ async def fbp(ctx, *blueprint):
         f.write(' '.join(blueprint))
     imgs = BlueprintImageConstructor('commands/factorio.bp', 'assets').get_image_files()
     for img in imgs:
-        await ctx.send(file=discord.File(os.path.join('commands', img)))
+        await ctx.send(file=discord.File(img))
 
 # Event handler for when a message is received
 @bot.event

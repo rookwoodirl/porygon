@@ -1,5 +1,6 @@
 discord.key
 assets/*
+api_keys/*
 *.png
 *.json
 *.bp

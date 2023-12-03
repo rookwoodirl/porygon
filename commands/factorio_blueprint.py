@@ -45,15 +45,17 @@ class BlueprintImageConstructor:
 
 
     def get_asset(self, asset_name):
+        
+        
         # scraping :^)
         fname = asset_name[0].upper() + asset_name[1:].lower().replace('-', '_') + '.png'
-
-        if fname not in os.listdir(os.path.join(self.assets_dir, 'factorio')):
+        
+        if fname not in os.listdir(os.path.join(self.assets_dir, 'factorio', 'icons')):
             image_url = "https://wiki.factorio.com/images/{}".format(fname) # Fast_transport_belt
 
-            self.download_image(image_url, os.path.join(self.assets_dir, 'factorio'), fname)
+            self.download_image(image_url, os.path.join(self.assets_dir, 'factorio', 'icons'), fname)
         
-        return Image.open(os.path.join(self.assets_dir, 'factorio', fname))
+        return Image.open(os.path.join(self.assets_dir, 'factorio', 'icons', fname))
 
     def decode_factorio_blueprint(self):
 
@@ -147,15 +149,9 @@ class BlueprintImageConstructor:
 
         # result.show()
 
-        result.save('factorio_bp.png')
+        result.save(os.path.join('commands', 'factorio_bp.png'))
 
-        return 'factorio_bp.png'
-
-
-        
-
-
-
+        return os.path.join('commands', 'factorio_bp.png')
 
 
 
