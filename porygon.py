@@ -7,13 +7,15 @@ from openai import OpenAI
 with open(os.path.join('api_keys', 'chatgpt.key'), 'r') as f:
     chat_client = OpenAI(api_key=f.readline())
 
+from datetime import datetime
+
 # Replace 'YOUR_BOT_TOKEN' with your actual bot token
 with open(os.path.join('api_keys', 'discord.key'), 'r') as f:
     BOT_TOKEN = f.readline().strip()
 
 def log(command, text):
     with open('commands.log', 'a') as f:
-        f.write(command, '|', text)
+        f.write('\n' + str(datetime.now()) + '|' + command + '|' + text)
 
 # Create a bot instance with a command prefix
 intents = discord.Intents.all() 
@@ -84,7 +86,7 @@ async def on_message(message):
 
     if gpt_activated and len(message.content) < 1000:
         # chatgpt
-        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'bot-spam']
+        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam']
         with open(os.path.join('assets', 'chatgpt', 'languages.prompt')) as f:
             prompt = [
                 {
@@ -111,6 +113,35 @@ async def on_message(message):
             if gpt_pass_counter == 5:
                 await message.channel.send("Zzzzz...... so sleepy....")
 
+
+
+
+
+
+
+# role reacts
+@bot.event
+async def on_raw_reaction_add(payload):
+
+    guild_id = payload.guild_id
+    guild = discord.utils.find(lambda g: g.id == guild_id, bot.guilds)
+
+    roles_dict = {
+        '🥳' : 'Party Games'
+    }
+
+    # Replace with your guild ID, message ID, emoji, and role name
+    if payload.channel_id == 1181995251594965142: # roles channel
+        print(payload.emoji.name)
+        if payload.emoji.name in roles_dict:
+            role = discord.utils.get(guild.roles, name=roles_dict[payload.emoji.name])
+        else:
+            role = discord.utils.get(guild.roles, name=payload.emoji.name[0].upper() + payload.emoji.name[1:])
+        if role:
+            member = guild.get_member(payload.user_id)
+            await member.add_roles(role)
+            print(f"Added role {role.name} to {member.display_name}")
+            log('roles', f"Added role {role.name} to {member.display_name}")
 
 
 

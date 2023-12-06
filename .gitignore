@@ -3,6 +3,7 @@ assets/*
 *.png
 *.json
 *.bp
+*.log
 
 *.DS_STORE
 *.pyc
