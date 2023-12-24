@@ -5,7 +5,7 @@ from commands.factorio_blueprint import BlueprintImageConstructor
 import os
 from openai import OpenAI
 with open(os.path.join('api_keys', 'chatgpt.key'), 'r') as f:
-    chat_client = OpenAI(api_key=f.readline())
+    chat_client = OpenAI(api_key=f.readline().strip())
 
 from datetime import datetime
 
