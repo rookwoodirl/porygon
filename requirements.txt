@@ -4,3 +4,4 @@ python-chess
 cairosvg
 deflate
 zstandard
+openai

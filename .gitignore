@@ -1,8 +1,13 @@
-discord.key
 assets/*
 *.png
 *.json
 *.bp
+*.log
+*.key
 
 *.DS_STORE
 *.pyc
+
+api_keys/*
+
+*/__pycache__/*

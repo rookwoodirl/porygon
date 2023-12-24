@@ -3,14 +3,19 @@ from discord.ext import commands
 from commands.chess_gif import pgn_to_gif
 from commands.factorio_blueprint import BlueprintImageConstructor
 import os
+from openai import OpenAI
+with open(os.path.join('api_keys', 'chatgpt.key'), 'r') as f:
+    chat_client = OpenAI(api_key=f.readline())
+
+from datetime import datetime
 
 # Replace 'YOUR_BOT_TOKEN' with your actual bot token
-with open('discord.key', 'r') as f:
+with open(os.path.join('api_keys', 'discord.key'), 'r') as f:
     BOT_TOKEN = f.readline().strip()
 
 def log(command, text):
     with open('commands.log', 'a') as f:
-        f.write(command, '|', text)
+        f.write('\n' + str(datetime.now()) + '|' + command + '|' + text)
 
 # Create a bot instance with a command prefix
 intents = discord.Intents.all() 
@@ -51,9 +56,16 @@ async def fbp(ctx, *blueprint):
     for img in imgs:
         await ctx.send(file=discord.File(os.path.join('commands', img)))
 
+gpt_activated = False
+gpt_pass_counter = 0
+
 # Event handler for when a message is received
 @bot.event
 async def on_message(message):
+
+    global gpt_activated
+    global gpt_pass_counter
+
     # Ignore messages from the bot itself to prevent infinite loops
     if message.author == bot.user:
         return
@@ -64,6 +76,73 @@ async def on_message(message):
 
     # Process commands
     await bot.process_commands(message)
+
+    if 'pory' in message.content.lower() or '<@270372309273023273 >' in message.content:
+        gpt_activated = True
+
+    if gpt_pass_counter >= 5:
+        gpt_activated = False
+
+    if gpt_activated and len(message.content) < 1000:
+        # chatgpt
+        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam']
+        with open(os.path.join('assets', 'chatgpt', 'languages.prompt')) as f:
+            prompt = [
+                {
+                    "role": "system", 
+                    "content": '\n'.join(f.readlines())
+                }
+            ]
+        if message.channel.name in gpt_channels:
+            new_prompt = prompt.copy()
+            messages = [msg async for msg in message.channel.history(limit=10)]
+            for message in reversed(messages):
+                new_prompt.append({"role": "assistant" if message.author.display_name == "Porygon" else "user", "content": message.content[:2000]})
+
+            
+
+            response = chat_client.chat.completions.create(model="gpt-4",  messages=new_prompt)
+            reply = response.choices[0].message.content
+            if reply.lower()[:4] != "pass":
+                gpt_pass_counter = 0
+                await message.channel.send(reply)
+            else:
+                gpt_pass_counter += 1
+
+            if gpt_pass_counter == 5:
+                await message.channel.send("Zzzzz...... so sleepy....")
+
+
+
+
+
+
+
+# role reacts
+@bot.event
+async def on_raw_reaction_add(payload):
+
+    guild_id = payload.guild_id
+    guild = discord.utils.find(lambda g: g.id == guild_id, bot.guilds)
+
+    roles_dict = {
+        '🥳' : 'Party Games'
+    }
+
+    # Replace with your guild ID, message ID, emoji, and role name
+    if payload.channel_id == 1181995251594965142: # roles channel
+        print(payload.emoji.name)
+        if payload.emoji.name in roles_dict:
+            role = discord.utils.get(guild.roles, name=roles_dict[payload.emoji.name])
+        else:
+            role = discord.utils.get(guild.roles, name=payload.emoji.name[0].upper() + payload.emoji.name[1:])
+        if role:
+            member = guild.get_member(payload.user_id)
+            await member.add_roles(role)
+            print(f"Added role {role.name} to {member.display_name}")
+            log('roles', f"Added role {role.name} to {member.display_name}")
+
+
 
 
 # Start the bot
