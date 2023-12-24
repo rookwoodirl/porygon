@@ -56,7 +56,6 @@ async def fbp(ctx, *blueprint):
     for img in imgs:
         await ctx.send(file=discord.File(os.path.join('commands', img)))
 
-
 gpt_activated = False
 gpt_pass_counter = 0
 
