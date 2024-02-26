@@ -5,3 +5,4 @@ cairosvg
 deflate
 zstandard
 openai
+pygame

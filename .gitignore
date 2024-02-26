@@ -4,6 +4,7 @@ assets/*
 *.bp
 *.log
 *.key
+push.sh
 
 *.DS_STORE
 *.pyc

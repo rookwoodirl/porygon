@@ -79,6 +79,7 @@ async def on_message(message):
 
     if 'pory' in message.content.lower() or '<@270372309273023273 >' in message.content:
         gpt_activated = True
+        gpt_pass_counter = 0
 
     if gpt_pass_counter >= 5:
         gpt_activated = False
