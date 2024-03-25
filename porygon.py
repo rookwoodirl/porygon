@@ -147,4 +147,8 @@ async def on_raw_reaction_add(payload):
 
 
 # Start the bot
-bot.run(BOT_TOKEN)
+try:
+    bot.run(BOT_TOKEN)
+except Exception as e:
+    with open('errors.log', 'a') as f:
+        f.write('------------------------------\n' + str(e) + '\n\n\n')
