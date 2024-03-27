@@ -6,3 +6,4 @@ deflate
 zstandard
 openai
 pygame
+flask
