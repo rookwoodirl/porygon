@@ -101,7 +101,7 @@ async def on_message(message):
     if gpt_pass_counter >= 5:
         gpt_activated = False
 
-    if gpt_activated and len(message.content) < 1000:
+    if gpt_activated and len(message.content) < 1000 and message.content[0] != '!':
         # chatgpt
         gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam', 'dev-bot-spam']
         with open(os.path.join('assets', 'chatgpt', 'languages.prompt')) as f:
