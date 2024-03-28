@@ -64,8 +64,6 @@ async def fbp(ctx, *blueprint):
     for img in imgs:
         await ctx.send(file=discord.File(os.path.join('commands', img)))
 
-
-
 @bot.command(name='flashcards', help='!flashcards <name> and then attach a .csv to your message with pairs of words to turn into flashcards!')
 async def chess_gif(ctx, *args):
     file = ctx.message.attachments[0]
@@ -73,7 +71,31 @@ async def chess_gif(ctx, *args):
     await file.save(os.path.join('assets', 'flashcards', name))
     await ctx.send(f'You can quiz yourself at: {website}/flashcards/{args[0]}')
 
+@bot.command(name='story', help='!story <word_list> <language> and pory will tell you a story using using your words so you can practice reading comprehension')
+async def story(ctx, *args):
 
+    with open(os.path.join('assets', 'flashcards', f'{args[0]}.csv'), 'r') as f:
+        words = '\n'.join([j.split(',')[0] for j in f.readlines()])
+    language = args[1]
+    with open(os.path.join('assets', 'chatgpt', 'story.prompt')) as f:
+        prompt = [
+            {
+                "role": "system", 
+                "content": '\n'.join(f.readlines())
+            }
+        ]
+    new_prompt = prompt.copy()
+    messages = [f"""Pory, tell me a story that's <200 words (and <2000 characters) in {language} using these words:
+                {words}
+                If you need more words, type 1/X at the end of your story, 
+                where X is how many messages you think you'll need. Your partner will say 'continue' to allow you to 
+                continue your story."""]
+    for message in reversed(messages):
+        new_prompt.append({"role": "user", "content": messages[0]})
+
+    response = chat_client.chat.completions.create(model="gpt-4",  messages=new_prompt)
+    reply = response.choices[0].message.content
+    await ctx.message.channel.send(reply[:2000])
 
 gpt_activated = False
 gpt_pass_counter = 0
