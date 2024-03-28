@@ -14,7 +14,7 @@ def get_secret(secret):
         
 chat_client = OpenAI(api_key=get_secret('chatgpt'))
 
-website = 'https://porygon-yhi5j.ondigitalocean.app/'
+website = 'https://porygon-yhi5j.ondigitalocean.app'
 
 from datetime import datetime
 
