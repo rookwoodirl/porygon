@@ -1,1 +1,1 @@
-python website/server.py
+python website/server.py & python porygon.py
