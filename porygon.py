@@ -56,6 +56,17 @@ async def fbp(ctx, *blueprint):
     for img in imgs:
         await ctx.send(file=discord.File(os.path.join('commands', img)))
 
+
+
+@bot.command(name='notecards', help='Notecards!')
+async def chess_gif(ctx, *args):
+    file = ctx.message.attachments[0]
+    name = args[0] + '.csv'
+    await file.save(os.path.join('assets', 'notecards', name))
+    await ctx.send(f'You can quiz yourself at: https://octopus-app-nbkey.ondigitalocean.app/notecards/{args[0]}')
+
+
+
 gpt_activated = False
 gpt_pass_counter = 0
 
@@ -86,7 +97,7 @@ async def on_message(message):
 
     if gpt_activated and len(message.content) < 1000:
         # chatgpt
-        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam']
+        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam', 'dev-bot-spam']
         with open(os.path.join('assets', 'chatgpt', 'languages.prompt')) as f:
             prompt = [
                 {
