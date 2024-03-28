@@ -20,7 +20,7 @@
 <body>
     <h1>Flashcards</h1>
     <div class="flashcards">
-        {% for question, answer in notecards_data.items() %}
+        {% for question, answer in flashcards_data.items() %}
             <div class="flashcard" onclick="toggleFlashcard(this)">
                 <h2 class="question">{{ question }}</h2>
                 <p class="answer" style="display: none;">{{ answer }}</p>

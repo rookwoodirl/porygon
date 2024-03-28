@@ -14,6 +14,8 @@ def get_secret(secret):
         
 chat_client = OpenAI(api_key=get_secret('chatgpt'))
 
+website = 'https://porygon-yhi5j.ondigitalocean.app/'
+
 from datetime import datetime
 
 # Replace 'YOUR_BOT_TOKEN' with your actual bot token
@@ -64,12 +66,12 @@ async def fbp(ctx, *blueprint):
 
 
 
-@bot.command(name='notecards', help='Notecards!')
+@bot.command(name='flashcards', help='flashcards!')
 async def chess_gif(ctx, *args):
     file = ctx.message.attachments[0]
     name = args[0] + '.csv'
-    await file.save(os.path.join('assets', 'notecards', name))
-    await ctx.send(f'You can quiz yourself at: https://octopus-app-nbkey.ondigitalocean.app/notecards/{args[0]}')
+    await file.save(os.path.join('assets', 'flashcards', name))
+    await ctx.send(f'You can quiz yourself at: {website}/flashcards/{args[0]}')
 
 
 

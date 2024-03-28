@@ -9,21 +9,21 @@ app = Flask(__name__)
 def home():
     return 'ur very cute :3'
 
-@app.route('/notecards/<name>')
-def notecards(name):
+@app.route('/flashcards/<name>')
+def flashcards(name):
     print('awooga')
-    with open(os.path.join('assets', 'notecards', f'{name}.csv')) as f:
-        notecards_data = {}
+    with open(os.path.join('assets', 'flashcards', f'{name}.csv')) as f:
+        flashcards_data = {}
         for line in f.readlines():
             k, v = line.split(',')
-            notecards_data[k] = v
+            flashcards_data[k] = v
 
     # shuffle
-    items = list(notecards_data.items())
+    items = list(flashcards_data.items())
     random.shuffle(items)
-    notecards_data = dict(items)
+    flashcards_data = dict(items)
 
-    return render_template('notecards.html', notecards_data=notecards_data)
+    return render_template('flashcards.html', flashcards_data=flashcards_data)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
