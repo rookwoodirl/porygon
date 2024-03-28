@@ -94,7 +94,7 @@ async def on_message(message):
     # Process commands
     await bot.process_commands(message)
 
-    if 'pory' in message.content.lower() or '<@270372309273023273 >' in message.content:
+    if 'pory' in message.content.lower() or '<@270372309273023273>' in message.content:
         gpt_activated = True
         gpt_pass_counter = 0
 
@@ -103,7 +103,7 @@ async def on_message(message):
 
     if gpt_activated and len(message.content) < 1000 and message.content[0] != '!':
         # chatgpt
-        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam', 'dev-bot-spam']
+        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam']
         with open(os.path.join('assets', 'chatgpt', 'languages.prompt')) as f:
             prompt = [
                 {
