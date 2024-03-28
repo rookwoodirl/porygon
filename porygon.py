@@ -66,7 +66,7 @@ async def fbp(ctx, *blueprint):
 
 
 
-@bot.command(name='flashcards', help='flashcards!')
+@bot.command(name='flashcards', help='!flashcards <name> and then attach a .csv to your message with pairs of words to turn into flashcards!')
 async def chess_gif(ctx, *args):
     file = ctx.message.attachments[0]
     name = args[0] + '.csv'
