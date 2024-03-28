@@ -4,14 +4,20 @@ from commands.chess_gif import pgn_to_gif
 from commands.factorio_blueprint import BlueprintImageConstructor
 import os
 from openai import OpenAI
-with open(os.path.join('api_keys', 'chatgpt.key'), 'r') as f:
-    chat_client = OpenAI(api_key=f.readline().strip())
+
+def get_secret(secret):
+    if secret in os.environ:
+        return os.environ[secret]
+    else:
+        with open(os.path.join('api_keys', f'{secret}.key'), 'r') as f:
+            return f.readline().strip()
+        
+chat_client = OpenAI(api_key=get_secret('chatgpt'))
 
 from datetime import datetime
 
 # Replace 'YOUR_BOT_TOKEN' with your actual bot token
-with open(os.path.join('api_keys', 'discord.key'), 'r') as f:
-    BOT_TOKEN = f.readline().strip()
+BOT_TOKEN = get_secret('discord')
 
 def log(command, text):
     with open('commands.log', 'a') as f:
