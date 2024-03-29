@@ -127,7 +127,7 @@ async def on_message(message):
 
     if gpt_activated and len(message.content) < 1000 and message.content[0] != '!':
         # chatgpt
-        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam']
+        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam', 'dev-bot-spam']
         with open(os.path.join('assets', 'chatgpt', 'languages.prompt')) as f:
             prompt = [
                 {
@@ -144,10 +144,16 @@ async def on_message(message):
             
 
             response = chat_client.chat.completions.create(model="gpt-4",  messages=new_prompt)
-            reply = response.choices[0].message.content[:2000]
+
+            reply = response.choices[0].message.content
             if reply.lower()[:4] != "pass":
                 gpt_pass_counter = 0
-                await message.channel.send(reply)
+                replies = [reply[i*2000:(i+1)*2000] for i in range(0, 1 + len(reply) // 2000)]
+                for r in replies:
+                    await message.channel.send(r)
+
+                
+            
             else:
                 gpt_pass_counter += 1
 
