@@ -144,7 +144,7 @@ async def on_message(message):
             
 
             response = chat_client.chat.completions.create(model="gpt-4",  messages=new_prompt)
-            reply = response.choices[0].message.content
+            reply = response.choices[0].message.content[:2000]
             if reply.lower()[:4] != "pass":
                 gpt_pass_counter = 0
                 await message.channel.send(reply)
