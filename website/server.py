@@ -27,17 +27,3 @@ def flashcards(name):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
-
-
-
-import random
-
-
-
-# Sample dictionary
-my_dict = {'a': 1, 'b': 2, 'c': 3, 'd': 4}
-
-
-def shuffle(my_dict):
-    
-    return random_dict

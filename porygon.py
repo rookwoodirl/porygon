@@ -191,6 +191,17 @@ async def on_raw_reaction_add(payload):
             log('roles', f"Added role {role.name} to {member.display_name}")
 
 
+    pin_vote_emoji = '👍'
+    votes_to_pin = 1
+    # pins
+    if str(payload.emoji) == pin_vote_emoji:
+        channel = bot.get_channel(payload.channel_id)
+        message = await channel.fetch_message(payload.message_id)
+        reactions = message.reactions
+        for reaction in reactions:
+            print(reaction.emoji, reaction.count)
+            if str(reaction.emoji) == pin_vote_emoji and reaction.count >= votes_to_pin:
+                await message.pin()
 
 
 # Start the bot
