@@ -192,7 +192,7 @@ async def on_raw_reaction_add(payload):
 
 
     pin_vote_emoji = '👍'
-    votes_to_pin = 1
+    votes_to_pin = 5
     # pins
     if str(payload.emoji) == pin_vote_emoji:
         channel = bot.get_channel(payload.channel_id)
