@@ -4,6 +4,8 @@ from commands.chess_gif import pgn_to_gif
 from commands.factorio_blueprint import BlueprintImageConstructor
 import os
 from openai import OpenAI
+from datetime import datetime
+
 
 def get_secret(secret):
     if secret in os.environ:
@@ -12,14 +14,12 @@ def get_secret(secret):
         with open(os.path.join('api_keys', f'{secret}.key'), 'r') as f:
             return f.readline().strip()
         
+
+WEBSITE = f"https://{get_secret('address')}"
+MODEL = 'gpt-3.5-turbo'
+
+# get secrets
 chat_client = OpenAI(api_key=get_secret('chatgpt'))
-
-website = 'https://porygon-yhi5j.ondigitalocean.app'
-
-from datetime import datetime
-
-# Replace 'YOUR_BOT_TOKEN' with your actual bot token
-BOT_TOKEN = get_secret('discord')
 
 def log(command, text):
     with open('commands.log', 'a') as f:
@@ -27,8 +27,6 @@ def log(command, text):
 
 # Create a bot instance with a command prefix
 intents = discord.Intents.all() 
-#intents.messages = True
-#intents.message_content = True
 bot = commands.Bot(intents=intents, command_prefix='!')
 
 # Event handler for when the bot is ready
@@ -65,11 +63,11 @@ async def fbp(ctx, *blueprint):
         await ctx.send(file=discord.File(os.path.join('commands', img)))
 
 @bot.command(name='flashcards', help='!flashcards <name> and then attach a .csv to your message with pairs of words to turn into flashcards!')
-async def chess_gif(ctx, *args):
+async def flashcards(ctx, *args):
     file = ctx.message.attachments[0]
     name = args[0] + '.csv'
     await file.save(os.path.join('assets', 'flashcards', name))
-    await ctx.send(f'You can quiz yourself at: {website}/flashcards/{args[0]}')
+    await ctx.send(f'You can quiz yourself at: {WEBSITE}/flashcards/{args[0]}')
 
 @bot.command(name='story', help='!story <word_list> <language> and pory will tell you a story using using your words so you can practice reading comprehension')
 async def story(ctx, *args):
@@ -93,7 +91,7 @@ async def story(ctx, *args):
     for message in reversed(messages):
         new_prompt.append({"role": "user", "content": messages[0]})
 
-    response = chat_client.chat.completions.create(model="gpt-4",  messages=new_prompt)
+    response = chat_client.chat.completions.create(model=MODEL,  messages=new_prompt)
     reply = response.choices[0].message.content
     await ctx.message.channel.send(reply[:2000])
 
@@ -127,7 +125,7 @@ async def on_message(message):
 
     if gpt_activated and len(message.content) < 1000 and message.content[0] != '!':
         # chatgpt
-        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam', 'dev-bot-spam']
+        gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam']
         with open(os.path.join('assets', 'chatgpt', 'languages.prompt')) as f:
             prompt = [
                 {
@@ -143,7 +141,7 @@ async def on_message(message):
 
             
 
-            response = chat_client.chat.completions.create(model="gpt-4",  messages=new_prompt)
+            response = chat_client.chat.completions.create(model=MODEL,  messages=new_prompt)
 
             reply = response.choices[0].message.content
             if reply.lower()[:4] != "pass":
@@ -153,10 +151,11 @@ async def on_message(message):
                     await message.channel.send(r)
 
                 
-            
+            # count towards sleeping
             else:
                 gpt_pass_counter += 1
 
+            # let user know pory's going to stop reading messages with GPT (save money)
             if gpt_pass_counter == 5:
                 await message.channel.send("Zzzzz...... so sleepy....")
 
@@ -206,7 +205,7 @@ async def on_raw_reaction_add(payload):
 
 # Start the bot
 try:
-    bot.run(BOT_TOKEN)
+    bot.run(get_secret('discord'))
 except Exception as e:
     with open('errors.log', 'a') as f:
         f.write('------------------------------\n' + str(e) + '\n\n\n')

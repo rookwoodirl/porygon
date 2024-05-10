@@ -7,11 +7,10 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return 'ur very cute :3'
+    return 'pory... is... alive!!!'
 
 @app.route('/flashcards/<name>')
 def flashcards(name):
-    print('awooga')
     with open(os.path.join('assets', 'flashcards', f'{name}.csv')) as f:
         flashcards_data = {}
         for line in f.readlines():
