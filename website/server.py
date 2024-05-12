@@ -24,5 +24,13 @@ def flashcards(name):
 
     return render_template('flashcards.html', flashcards_data=flashcards_data)
 
+
+for convenience in ['sp500']:
+    @app.route(f'/{convenience}')
+    def fun():
+        with open(os.path.join('convenience', f'{convenience}.csv')) as f:
+            return '\n'.join(f.readlines())
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
