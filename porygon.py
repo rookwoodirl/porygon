@@ -11,12 +11,17 @@ def get_secret(secret):
     if secret in os.environ:
         return os.environ[secret]
     else:
-        with open(os.path.join('api_keys', f'{secret}.key'), 'r') as f:
-            return f.readline().strip()
+        try:
+            with open(os.path.join('api_keys', f'{secret}.key'), 'r') as f:
+                return f.readline().strip()
+        except:
+            return None
         
 
 WEBSITE = f"https://{get_secret('address')}"
-MODEL = 'gpt-3.5-turbo'
+MODEL = 'gpt-4'
+ENV = get_secret('env')
+
 
 # get secrets
 chat_client = OpenAI(api_key=get_secret('chatgpt'))
@@ -116,16 +121,21 @@ async def on_message(message):
     # Process commands
     await bot.process_commands(message)
 
+    # get hard references to pory to "wake it up", if we're not reading with chatgpt
     if 'pory' in message.content.lower() or '<@270372309273023273>' in message.content:
         gpt_activated = True
         gpt_pass_counter = 0
 
+    # if no one's talked to pory in a bit, go to sleep
     if gpt_pass_counter >= 5:
         gpt_activated = False
 
-    if gpt_activated and len(message.content) < 1000 and message.content[0] != '!':
+    # if we're not sleeping and the message isn't so long and it's not an attempted command, do some gpt stuff
+    if gpt_activated and len(message.content) < 1000 and len(message.content) > 0 and message.content[0] != '!':
         # chatgpt
         gpt_channels = ['日本語', 'italiano', 'deutsch', '한국어', 'español', 'norsk', 'bot-spam']
+        if ENV.lower() != 'prod':
+            gpt_channels += ['dev-bot-spam']
         with open(os.path.join('assets', 'chatgpt', 'languages.prompt')) as f:
             prompt = [
                 {
