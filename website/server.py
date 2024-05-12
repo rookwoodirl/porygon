@@ -29,7 +29,7 @@ for convenience in ['sp500']:
     @app.route(f'/{convenience}')
     def fun():
         with open(os.path.join('assets', 'convenience', f'{convenience}.csv')) as f:
-            return '\n'.join(f.readlines())
+            return '<pre>' + '\n'.join(f.readlines()) + '</pre>'
 
 
 if __name__ == '__main__':
