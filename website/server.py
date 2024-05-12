@@ -28,7 +28,7 @@ def flashcards(name):
 for convenience in ['sp500']:
     @app.route(f'/{convenience}')
     def fun():
-        with open(os.path.join('convenience', f'{convenience}.csv')) as f:
+        with open(os.path.join('assets', 'convenience', f'{convenience}.csv')) as f:
             return '\n'.join(f.readlines())
 
 
