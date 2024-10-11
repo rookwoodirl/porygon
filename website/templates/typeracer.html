@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TypeRacer Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        #targetText {
+            font-size: 18px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 20px;
+            background-color: #f5f5f5;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            font-size: 16px;
+            padding: 10px;
+        }
+        .timer {
+            font-size: 20px;
+            margin: 20px 0;
+        }
+        .countdown {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TypeRacer (hosted on Pory)</h1>
+        <div class="countdown" id="countdown">3</div>
+        <div id="targetText">{{ prompt }}</div>
+        <textarea id="typingArea" placeholder="Start typing here..." disabled></textarea>
+        <div id="resultElement"><span id="result"> </span></div>
+        <div class="timer">Time: <span id="time">0</span> seconds</div>
+        <div class="wpm">WPM: <span id="wpm">0</span></div>
+        <div class="scoreboard">
+            <h1>Live Scoreboard</h1>
+            <table>
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Time</th>
+                  <th>WPM</th>
+                </tr>
+              </thead>
+              <tbody id="scoreTable">
+                <!-- Scores will be dynamically inserted here -->
+              </tbody>
+            </table>
+          </div>
+    </div>
+
+    <script>
+        let countdownEl = document.getElementById("countdown");
+        let typingArea = document.getElementById("typingArea");
+        let timerEl = document.getElementById("time");
+        let wpmEl = document.getElementById("wpm");
+        let result = document.getElementById("result");
+        let scoreTable = document.getElementById("scoreTable");
+        let player = "{{ player }}";
+        result.textContent = "";
+        
+        let time = 0;
+        let countdown = 3;
+        let wpm = 0;
+        let interval;
+        let gameid = 0;
+
+        // Start the countdown
+        const countdownInterval = setInterval(() => {
+            countdown--;
+            countdownEl.textContent = countdown;
+            if (countdown === 0) {
+                clearInterval(countdownInterval);
+                countdownEl.style.display = 'none';
+                typingArea.disabled = false;
+                typingArea.focus();
+                startTimer();
+            }
+        }, 1000);
+
+        function getScores() {
+            fetch(`get-scores`)
+            .then(response => response.json())
+            .then(data => updateScoreboard(data))
+            .catch((error) => {
+                console.error('Error:', error);
+            });
+        }
+
+        function submitScore() {
+            fetch(`submit-score/${player}/${time}/${wpm}`)
+            .catch((error) => {
+                console.error('Error:', error);
+            });
+        }
+
+        function updateScoreboard(scores) {
+            console.log("hello!");
+            console.log(scores);
+            const scoreTable = document.getElementById("scoreTable");
+            scoreTable.innerHTML = ""; // Clear previous scores
+            scores.forEach(score => {
+                console.log(score);
+                const row = document.createElement("tr");
+
+                const playerCell = document.createElement("td");
+                playerCell.textContent = score.player;
+
+                const wpmCell = document.createElement("td");
+                wpmCell.textContent = score.wpm;
+
+                const timeCell = document.createElement("td");
+                timeCell.textContent = score.time;
+
+                row.appendChild(playerCell);
+                row.appendChild(wpmCell);
+                row.appendChild(timeCell);
+
+                scoreTable.appendChild(row);
+            });
+        }
+
+        // Start the typing timer
+        function startTimer() {
+            interval = setInterval(() => {
+                time++;
+                wpm = Math.round(60 * (typingArea.value.split(" ").length-1) / time, 2);
+                wpmEl.textContent = wpm;
+                timerEl.textContent = time;
+                submitScore();
+                getScores();
+            }, 1000);
+        }
+
+        // Stop timer on match
+        typingArea.addEventListener("input", () => {
+            const targetText = document.getElementById("targetText").textContent;
+            const userText = typingArea.value;
+
+            if (userText === targetText) {
+                clearInterval(interval);
+                result.textContent = `DONE.`;
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands
-from commands.chess_gif import pgn_to_gif
 from commands.factorio_blueprint import BlueprintImageConstructor
 import os
 from openai import OpenAI
@@ -24,6 +23,7 @@ ENV = get_secret('env')
 
 
 # get secrets
+print(get_secret('chatgpt'))
 chat_client = OpenAI(api_key=get_secret('chatgpt'))
 
 def log(command, text):

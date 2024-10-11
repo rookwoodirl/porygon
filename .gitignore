@@ -9,5 +9,6 @@ push.sh
 *.pyc
 
 api_keys/*
+assets/typeracer/scoreboard/*
 
 */__pycache__/*

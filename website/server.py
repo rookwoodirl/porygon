@@ -2,12 +2,34 @@ from flask import Flask
 from flask import Flask, render_template
 import os, random
 
+import typeracer
+
 
 app = Flask(__name__)
+typeracerLocks = {}
+
 
 @app.route('/')
 def home():
     return 'pory... is... alive!!!'
+
+@app.route('/typeracer/<gameid>/<player>')
+def typeracer_html(gameid, player):
+    return typeracer.get_game(gameid).html(player)
+
+
+@app.route('/typeracer/<gameid>/get-scores')
+def typeracer_scores(gameid):
+    return typeracer.get_game(gameid).get_scores()
+    
+
+@app.route('/typeracer/<gameid>/submit-score/<player>/<time>/<wpm>')
+def typeracer_submit_score(gameid, player, time, wpm):
+    return typeracer.get_game(gameid).submit_score(player, time, wpm)
+
+    
+
+
 
 @app.route('/flashcards/<name>')
 def flashcards(name):
