@@ -1,6 +1,6 @@
 from flask import Flask
 from flask import Flask, render_template, redirect
-import os, random
+import os, random, requests
 
 import typeracer
 
@@ -42,6 +42,12 @@ def typeracer_scores(gameid):
 @app.route('/typeracer/<gameid>/submit-score/<player>/<time>/<wpm>/<promptHash>')
 def typeracer_submit_score(gameid, player, time, wpm, promptHash):
     return typeracer.get_game(gameid).submit_score(player, time, wpm, promptHash)
+
+@app.route('/randomChamp')
+def randomChamp():
+    champs = requests.get('https://ddragon.leagueoflegends.com/cdn/14.20.1/data/en_US/champion.json')
+    champs = list(champs.json()['data'].keys())
+    return random.choice(champs)
 
     
 
