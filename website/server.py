@@ -1,5 +1,5 @@
 from flask import Flask
-from flask import Flask, render_template
+from flask import Flask, render_template, redirect
 import os, random
 
 import typeracer
@@ -8,14 +8,26 @@ import typeracer
 app = Flask(__name__)
 typeracerLocks = {}
 
+def randomWord(count=1):
+    with open(os.path.join('assets', 'convenience', 'randomwords.txt')) as f:
+        words = f.readlines()
+        return ''.join([random.choice(words).replace('\n', '') for _ in range(count)])
+
 
 @app.route('/')
 def home():
     return 'pory... is... alive!!!'
 
-@app.route('/typeracer/<gameid>/<player>')
-def typeracer_html(gameid, player):
-    return typeracer.get_game(gameid).html(player)
+@app.route('/typeracer')
+def typeracer_home():
+    word = randomWord(3)
+    while word in typeracer.games:
+        word = randomWord(3)
+    return redirect(f'/typeracer/{word}')
+
+@app.route('/typeracer/<gameid>')
+def typeracer_html(gameid):
+    return typeracer.get_game(gameid).html()
 
 
 @app.route('/typeracer/<gameid>/get-scores')

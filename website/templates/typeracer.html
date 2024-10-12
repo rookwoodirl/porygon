@@ -48,6 +48,19 @@
         <div id="resultElement"><span id="result"> </span></div>
         <div class="timer">Time: <span id="time">0</span> seconds</div>
         <div class="wpm">WPM: <span id="wpm">0</span></div>
+        <div>
+            <script>
+                // JavaScript function to change the name when the button is clicked
+                function changeName() {
+                    const inputText = document.getElementById('nameInput').value;
+                    document.getElementById('playerName').innerText = inputText;
+                }
+            </script>
+            <p id="playerName">{{ player }}</p>
+            <button onclick="changeName()">Change Name</button>
+            <input type="text" id="nameInput" placeholder="Enter name here">
+            <button onclick="reset()"></button>
+        </div>
         <div class="scoreboard">
             <h1>Live Scoreboard</h1>
             <table>
@@ -72,14 +85,13 @@
         let wpmEl = document.getElementById("wpm");
         let result = document.getElementById("result");
         let scoreTable = document.getElementById("scoreTable");
-        let player = "{{ player }}";
         result.textContent = "";
         
         let time = 0;
         let countdown = 3;
         let wpm = 0;
         let interval;
-        let gameid = 0;
+        let gameid = '{{ gameid }}';
 
         // Start the countdown
         const countdownInterval = setInterval(() => {
@@ -95,7 +107,7 @@
         }, 1000);
 
         function getScores() {
-            fetch(`get-scores`)
+            fetch(`/typeracer/${gameid}/get-scores`)
             .then(response => response.json())
             .then(data => updateScoreboard(data))
             .catch((error) => {
@@ -104,33 +116,31 @@
         }
 
         function submitScore() {
-            fetch(`submit-score/${player}/${time}/${wpm}`)
+            let player = document.getElementById("playerName").innerText;
+            fetch(`/typeracer/${gameid}/submit-score/${player}/${time}/${wpm}`)
             .catch((error) => {
                 console.error('Error:', error);
             });
         }
 
         function updateScoreboard(scores) {
-            console.log("hello!");
-            console.log(scores);
             const scoreTable = document.getElementById("scoreTable");
             scoreTable.innerHTML = ""; // Clear previous scores
             scores.forEach(score => {
-                console.log(score);
                 const row = document.createElement("tr");
 
                 const playerCell = document.createElement("td");
                 playerCell.textContent = score.player;
 
-                const wpmCell = document.createElement("td");
-                wpmCell.textContent = score.wpm;
-
                 const timeCell = document.createElement("td");
                 timeCell.textContent = score.time;
 
+                const wpmCell = document.createElement("td");
+                wpmCell.textContent = score.wpm;
+
                 row.appendChild(playerCell);
-                row.appendChild(wpmCell);
                 row.appendChild(timeCell);
+                row.appendChild(wpmCell);
 
                 scoreTable.appendChild(row);
             });
