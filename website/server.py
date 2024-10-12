@@ -29,15 +29,19 @@ def typeracer_home():
 def typeracer_html(gameid):
     return typeracer.get_game(gameid).html()
 
+@app.route('/typeracer/<gameid>/prompt')
+def typeracer_prompt(gameid):
+    return { 'prompt' : typeracer.get_game(gameid).get_prompt() }
+
 
 @app.route('/typeracer/<gameid>/get-scores')
 def typeracer_scores(gameid):
     return typeracer.get_game(gameid).get_scores()
     
 
-@app.route('/typeracer/<gameid>/submit-score/<player>/<time>/<wpm>')
-def typeracer_submit_score(gameid, player, time, wpm):
-    return typeracer.get_game(gameid).submit_score(player, time, wpm)
+@app.route('/typeracer/<gameid>/submit-score/<player>/<time>/<wpm>/<promptHash>')
+def typeracer_submit_score(gameid, player, time, wpm, promptHash):
+    return typeracer.get_game(gameid).submit_score(player, time, wpm, promptHash)
 
     
 

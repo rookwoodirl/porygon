@@ -12,7 +12,7 @@
             text-align: center;
         }
         .container {
-            max-width: 600px;
+            max-width: 80%;
             margin: 0 auto;
         }
         #targetText {
@@ -42,25 +42,18 @@
 <body>
     <div class="container">
         <h1>TypeRacer (hosted on Pory)</h1>
+        <div>
+            <p id="playerName">{{ player }}</p>
+            <button onclick="changeName()">Change Name</button>
+            <input type="text" id="nameInput" placeholder="Enter name here">
+            <button onclick="reset()">Reset</button>
+        </div>
         <div class="countdown" id="countdown">3</div>
-        <div id="targetText">{{ prompt }}</div>
+        <div id="targetText" width=80%>{{ prompt }}</div>
         <textarea id="typingArea" placeholder="Start typing here..." disabled></textarea>
         <div id="resultElement"><span id="result"> </span></div>
         <div class="timer">Time: <span id="time">0</span> seconds</div>
         <div class="wpm">WPM: <span id="wpm">0</span></div>
-        <div>
-            <script>
-                // JavaScript function to change the name when the button is clicked
-                function changeName() {
-                    const inputText = document.getElementById('nameInput').value;
-                    document.getElementById('playerName').innerText = inputText;
-                }
-            </script>
-            <p id="playerName">{{ player }}</p>
-            <button onclick="changeName()">Change Name</button>
-            <input type="text" id="nameInput" placeholder="Enter name here">
-            <button onclick="reset()"></button>
-        </div>
         <div class="scoreboard">
             <h1>Live Scoreboard</h1>
             <table>
@@ -85,6 +78,8 @@
         let wpmEl = document.getElementById("wpm");
         let result = document.getElementById("result");
         let scoreTable = document.getElementById("scoreTable");
+        let targetText = document.getElementById("targetText");
+        let countdownStyleDisplay = countdownEl.style.display;
         result.textContent = "";
         
         let time = 0;
@@ -94,17 +89,34 @@
         let gameid = '{{ gameid }}';
 
         // Start the countdown
-        const countdownInterval = setInterval(() => {
-            countdown--;
+        let countdownInterval;
+
+        function reset() {
+            countdown = 3;
+            clearInterval(countdownInterval);
+            typingArea.disabled = true;
             countdownEl.textContent = countdown;
-            if (countdown === 0) {
-                clearInterval(countdownInterval);
-                countdownEl.style.display = 'none';
-                typingArea.disabled = false;
-                typingArea.focus();
-                startTimer();
-            }
-        }, 1000);
+            countdownInterval = setInterval(() => {
+                countdown--;
+                countdownEl.textContent = countdown;
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    typingArea.disabled = false;
+                    typingArea.focus();
+                    startTimer();
+                }
+            }, 1000);
+            newPrompt();
+            getPrompt()
+        }
+
+        function newPrompt() {
+            let value = fetch(`/typeracer/${gameid}/prompt`)
+                .then(response => response.json())
+                .then(data => targetText.textContent = data.prompt);
+            targetText.textContent = value;
+
+        }
 
         function getScores() {
             fetch(`/typeracer/${gameid}/get-scores`)
@@ -158,16 +170,22 @@
             }, 1000);
         }
 
+        // JavaScript function to change the name when the button is clicked
+        function changeName() {
+            const inputText = document.getElementById('nameInput').value;
+            document.getElementById('playerName').innerText = inputText;
+        }
+
         // Stop timer on match
         typingArea.addEventListener("input", () => {
-            const targetText = document.getElementById("targetText").textContent;
             const userText = typingArea.value;
 
-            if (userText === targetText) {
+            if (userText === targetText.textContent) {
                 clearInterval(interval);
                 result.textContent = `DONE.`;
             }
         });
     </script>
+    
 </body>
 </html>

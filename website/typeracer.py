@@ -32,22 +32,29 @@ class TyperacerGame:
 
     def get_scores(self):
         with self.lock:
-            return [self.data[player] for player in self.data]
+            return self.data
 
-    def get_prompt(self):
+    def new_prompt(self):
         prompts = os.listdir(DIR_PROMPTS)
 
         with open(os.path.join(DIR_PROMPTS, random.choice(prompts))) as f:
-            return ' '.join(f.readlines())
+            self.prompt = ' '.join(f.readlines())
+
+        self.prompt = self.new_prompt()
+        self.data['hash'] = str(hash(self.prompt))[:8]
+
+    def get_prompt(self):
+        return self.prompt
 
 
-    def submit_score(self, player, time, wpm):
+    def submit_score(self, player, time, wpm, promptHash):
         
         with self.lock: # lock the data file
             self.data[player.replace(' ', '_')] = {
                 'player' : player,
                 'time' : time,
-                'wpm' : wpm
+                'wpm' : wpm,
+                'hash' : promptHash
             }
             with open(os.path.join(DIR_SCOREBOARDS, f'{self.gameid}.csv'), 'w+') as f:
                 f.write('\n'.join([','.join([player, self.data[player]['time'], self.data[player]['wpm']]) for player in self.data]))
