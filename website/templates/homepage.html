@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grid Panels</title>
+    <link rel="stylesheet" href="{{ url_for('webpage/templates/css', filename='homepage.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Each panel contains an image and a description -->
+        <a href="https://example1.com" class="panel">
+            <img src="image1.jpg" alt="Image 1">
+            <div class="panel-text">Panel 1</div>
+        </a>
+        <a href="https://example2.com" class="panel">
+            <img src="image2.jpg" alt="Image 2">
+            <div class="panel-text">Panel 2</div>
+        </a>
+        <a href="https://example3.com" class="panel">
+            <img src="image3.jpg" alt="Image 3">
+            <div class="panel-text">Panel 3</div>
+        </a>
+        <a href="https://example4.com" class="panel">
+            <img src="image4.jpg" alt="Image 4">
+            <div class="panel-text">Panel 4</div>
+        </a>
+        <!-- Add as many panels as needed, this can expand to an X by Y grid -->
+    </div>
+</body>
+</html>

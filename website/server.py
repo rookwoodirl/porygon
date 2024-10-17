@@ -6,9 +6,11 @@ import typeracer
 
 
 app = Flask(__name__)
-typeracerLocks = {}
 
 def randomWord(count=1):
+    """
+    generate random combinations for instancing things
+    """
     with open(os.path.join('assets', 'convenience', 'randomwords.txt')) as f:
         words = f.readlines()
         return ''.join([random.choice(words).replace('\n', '') for _ in range(count)])
@@ -16,7 +18,20 @@ def randomWord(count=1):
 
 @app.route('/')
 def home():
-    return 'pory... is... alive!!!'
+    return render_template('homepage.html')
+
+@app.route('/dev')
+def dev():
+    from webobject import HoverPanel, Grid
+    panel = HoverPanel('porygon', 'porygon')
+
+    obj = Grid([panel.html] * 6)
+
+    return f"""
+        <div style="display: flex; width: 30%; height: 80%; justify-content: center; align-items: center;">
+            {obj.html}
+        </div>
+    """
 
 @app.route('/typeracer')
 def typeracer_home():
@@ -29,19 +44,35 @@ def typeracer_home():
 def typeracer_html(gameid):
     return typeracer.get_game(gameid).html()
 
+@app.route('/typeracer/<gameid>/new-prompt')
+def typeracer_new_prompt(gameid):
+    """
+    make the ${gameid} select a new prompt
+    """
+    return { 'prompt' : typeracer.get_game(gameid).new_prompt() }
+
 @app.route('/typeracer/<gameid>/prompt')
 def typeracer_prompt(gameid):
-    return { 'prompt' : typeracer.get_game(gameid).get_prompt() }
+    """
+    get the name of the text file for ${gameid}
+    """
+    return { 'prompt' : typeracer.get_game(gameid).prompt }
 
+@app.route('/typeracer/prompt/<prompt>')
+def typeracer_prompt_definition(prompt):
+    """
+    get the full text of ${prompt}
+    """
+    return { 'prompt' : typeracer.prompts[prompt] }
 
 @app.route('/typeracer/<gameid>/get-scores')
 def typeracer_scores(gameid):
     return typeracer.get_game(gameid).get_scores()
     
 
-@app.route('/typeracer/<gameid>/submit-score/<player>/<time>/<wpm>/<promptHash>')
-def typeracer_submit_score(gameid, player, time, wpm, promptHash):
-    return typeracer.get_game(gameid).submit_score(player, time, wpm, promptHash)
+@app.route('/typeracer/<gameid>/submit-score/<player>/<time>/<wpm>')
+def typeracer_submit_score(gameid, player, time, wpm):
+    return typeracer.get_game(gameid).submit_score(player, time, wpm)
 
 @app.route('/randomChamp')
 def randomChamp():

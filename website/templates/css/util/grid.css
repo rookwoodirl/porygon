@@ -1,0 +1,28 @@
+body {
+    display: flex;
+    justify-content: center; /* Horizontally center */
+    align-items: center; /* Vertically center */
+    height: 100vh; /* Make body take full viewport height */
+    width: 100vw;
+    margin: 0; /* Remove default margin */
+}
+
+.grid-container {
+    display: grid;
+    grid-template-columns: repeat({{width}}, 1fr);
+    grid-template-rows: repeat({{height}}, auto);
+    width: {{cell_width}};
+    height: {{cell_height}};
+}
+
+.grid-item {
+    border: 0px solid #ccc; /* no margin */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    padding: 5%;
+}

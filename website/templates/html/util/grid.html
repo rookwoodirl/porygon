@@ -1,0 +1,10 @@
+<div class="grid-container">
+    <style>
+        {{ style }}
+    </style>
+    {% for item in contents %}
+        <div class="grid-item">
+            {{ item | safe }}
+        </div>
+    {% endfor %}
+</div>

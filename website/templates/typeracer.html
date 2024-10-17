@@ -80,6 +80,7 @@
         let scoreTable = document.getElementById("scoreTable");
         let targetText = document.getElementById("targetText");
         let countdownStyleDisplay = countdownEl.style.display;
+        let prompt = '{{ prompt }}';
         result.textContent = "";
         
         let time = 0;
@@ -97,6 +98,7 @@
             typingArea.disabled = true;
             countdownEl.textContent = countdown;
             countdownInterval = setInterval(() => {
+                updatePrompt();
                 countdown--;
                 countdownEl.textContent = countdown;
                 if (countdown <= 0) {
@@ -107,15 +109,31 @@
                 }
             }, 1000);
             newPrompt();
-            getPrompt()
+        }
+
+        function updatePrompt() {
+            fetch(`/typeracer/${gameid}/prompt`)
+                .then(response => response.json())
+                .then(data => {
+                    // if it's a new prompt, get the more expensive packet
+                    if (data.prompt != prompt) {
+                        prompt = data.prompt;   // set the prompt
+                        updatePromptLong();     // update the prompt definition
+                    }
+                });
+            
+            
         }
 
         function newPrompt() {
-            let value = fetch(`/typeracer/${gameid}/prompt`)
+            // tell game to set a new prompt
+            fetch(`/typeracer/${gameid}/new-prompt`)
+        }
+
+        function updatePromptLong() {
+            fetch(`/typeracer/prompt/${prompt}`)
                 .then(response => response.json())
                 .then(data => targetText.textContent = data.prompt);
-            targetText.textContent = value;
-
         }
 
         function getScores() {
