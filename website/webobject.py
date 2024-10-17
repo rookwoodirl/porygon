@@ -19,7 +19,7 @@ class HoverPanel(WebObject):
             style = self.name
             
         self.style = render_template(os.path.join('css', self.path, f'{style}.css'))
-        image = os.path.join('static', 'images', f'{image}.png')
+        image = os.path.join('static', 'images', f'{image}')
 
         super().__init__(self.name, path=self.path, style=self.style, text=text, image=image, redirect=redirect)
 
@@ -27,17 +27,17 @@ class HoverPanel(WebObject):
 class Grid(WebObject):
     path = 'util'
     name = 'grid'
-    def __init__(self, contents, width=2, height=-1, style=None):
+    def __init__(self, contents, width='100%', height='100%', num_cols=2, num_rows=-1, style=None, ):
         if style is None:
             style = self.name
-        if height < 1:
-            height = len(contents) // width
+        if num_rows < 1:
+            num_rows = len(contents) // num_cols
             
         self.style = render_template(os.path.join('css', self.path, f'{style}.css'), 
-            height=height, 
+            num_rows=num_rows, 
+            num_cols=num_cols, 
             width=width, 
-            cell_width='100%', 
-            cell_height='100%')
+            height=height)
 
         super().__init__(self.name, path=self.path, style=self.style, contents=contents)
 

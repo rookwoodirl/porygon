@@ -9,10 +9,10 @@ body {
 
 .grid-container {
     display: grid;
-    grid-template-columns: repeat({{width}}, 1fr);
-    grid-template-rows: repeat({{height}}, auto);
-    width: {{cell_width}};
-    height: {{cell_height}};
+    grid-template-columns: repeat({{num_cols}}, 1fr);
+    grid-template-rows: repeat({{num_rows}}, auto);
+    width: {{width}};
+    height: {{height}};
 }
 
 .grid-item {

@@ -23,11 +23,13 @@ def home():
 @app.route('/dev')
 def dev():
     from webobject import HoverPanel, Grid
-    panel = HoverPanel('porygon', 'porygon')
+    panel = HoverPanel('typeracer', 'typeracer.svg', redirect='typeracer')
 
-    obj = Grid([panel.html] * 6)
+    obj = Grid([panel.html] * 6, width='30%', height='80%')
 
-    return f"""
+    return obj.html
+    
+    f"""
         <div style="display: flex; width: 30%; height: 80%; justify-content: center; align-items: center;">
             {obj.html}
         </div>
