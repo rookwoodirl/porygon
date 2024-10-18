@@ -1,9 +1,60 @@
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processing Visualization with Source Code</title>
 
-<div style="
-    width: {{ width }}px; 
-    height: {{ height }}px; 
-    border: 1px solid #ccc;">
+    <!-- Prism.js for code highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-java.min.js"></script>
+
+    <style>
+        /* Flexbox layout for side-by-side divs */
+        .container {
+            display: flex;
+            justify-content: space-around;  /* Aligns the divs with space between them */
+            margin-top: 20px;
+        }
+
+        .box {
+            width: 45%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+
+        #code {
+            overflow-y: auto;   /* Add scrolling for long code */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div style="
+            width: {{ width }}px; 
+            height: {{ height }}px; 
+            border: 1px solid #ccc;">
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/processing.js/1.6.6/processing.min.js"></script>
+            <canvas id="processingCanvas"></canvas>
+            <script src="static/js/{{ script }}" type="application/processing" data-processing-target="processingCanvas"></script>
+        </div>
+    
+
+        <!-- Java Source Code -->
+        <div id="code" class="box" style="height: {{ height }}">
+            <pre><code class="language-java">
+                {{ script_text }}
+            </code></pre>
+        </div>
+    </div>
+
+    <!-- Processing.js (for running the Processing sketch) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/processing.js/1.6.6/processing.min.js"></script>
-    <canvas id="processingCanvas"></canvas>
-    <script src="static/js/{{script}}" type="application/processing" data-processing-target="processingCanvas"></script>
-</div>
+</body>
+</html>
+
+    
+</body>

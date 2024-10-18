@@ -36,8 +36,8 @@ class Grid(WebObject):
         self.style = render_template(os.path.join('css', self.path, f'{style}.css'), 
             num_rows=num_rows, 
             num_cols=num_cols, 
-            width=width, 
-            height=height)
+            width=400 * num_cols, 
+            height=400 * num_rows)
 
         super().__init__(self.name, path=self.path, style=self.style, contents=contents)
 
@@ -48,4 +48,5 @@ class JavaCanvas(WebObject):
     name = 'processing'
     
     def __init__(self, script, **kwargs):
-        super().__init__(self.name, path=self.path, script=script, **kwargs)
+        with open(os.path.join('website', 'static', 'js', script), 'r') as f:
+            super().__init__(self.name, path=self.path, script=script, script_text=''.join(f.readlines()), **kwargs)

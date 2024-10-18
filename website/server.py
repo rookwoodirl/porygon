@@ -19,23 +19,21 @@ def randomWord(count=1):
 @app.route('/')
 def home():
     from webobject import HoverPanel, Grid
-    panel = HoverPanel('typeracer', 'typeracer.svg', redirect='typeracer')
+    panels = [
+        HoverPanel('typeracer', 'typeracer.svg', redirect='typeracer'),
+        HoverPanel('Flower Circle', 'flower_circle.png', redirect='flower-circle')
+    ]
 
-    obj = Grid([panel.html] * 6, width='30%', height='80%')
+    obj = Grid([panel.html for panel in panels], width='50%', height='80%')
 
     return obj.html
     
-    f"""
-        <div style="display: flex; width: 30%; height: 80%; justify-content: center; align-items: center;">
-            {obj.html}
-        </div>
-    """
 
-@app.route('/dev')
-def dev():
+@app.route('/flower-circle')
+def flower_circle():
     width='500'
     height='500'
-    script = 'flower_circle.js'
+    script = 'circles.java'
     from webobject import JavaCanvas
     return JavaCanvas(script, width=width, height=height).html
 

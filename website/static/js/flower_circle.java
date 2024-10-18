@@ -12,7 +12,7 @@ int totalFrames = 100; // Total frames for the GIF
 int midX;
 int midY;
 
-
+/* declare circle objects */
 public class RadiallyTrackedCircle {
   float size = 1;
   color col = #ffffff;
@@ -70,8 +70,6 @@ public class RadiallyTrackedCircle {
     this.draw();
   }
 }
-
-
 public class FlowerCircle extends RadiallyTrackedCircle {
     int numCircles;
     RadiallyTrackedCircle[] orbitingCircles;
@@ -103,24 +101,29 @@ public class FlowerCircle extends RadiallyTrackedCircle {
       
       
     }
+
+    void render() {
+      for (RadiallyTrackedCircle circle : this.orbitingCircles)
+        circle.render()
+    }
     
     
 }
 
 
 FlowerCircle flower;
+// this gets used in RadialTracking to know the things we need to render
+RadiallyTrackedCircle[] circles = new RadiallyTrackedCircle[0];
 
 
-
+/* draw() and setup() */
 void draw() {
   print("nice!");
   // black background
   background(DARKGRAY);
   
   
-  // render all the circles!
-  for (RadiallyTrackedCircle c : circles)
-    c.render();
+  flower.render();
     
   
 }
@@ -165,8 +168,6 @@ void setup() {
 
 
 
-// this gets used in RadialTracking to know the things we need to render
-RadiallyTrackedCircle[] circles = new RadiallyTrackedCircle[0];
 
 static float calcDistance(float x0, float y0, float x1, float y1) {
   float d = sqrt((x0 - x1) * (x0 - x1) + (y0 - y1) * (y0 - y1));
