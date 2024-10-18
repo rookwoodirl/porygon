@@ -41,3 +41,11 @@ class Grid(WebObject):
 
         super().__init__(self.name, path=self.path, style=self.style, contents=contents)
 
+
+
+class JavaCanvas(WebObject):
+    path = 'util'
+    name = 'processing'
+    
+    def __init__(self, script, **kwargs):
+        super().__init__(self.name, path=self.path, script=script, **kwargs)

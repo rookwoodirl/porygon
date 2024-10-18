@@ -18,10 +18,6 @@ def randomWord(count=1):
 
 @app.route('/')
 def home():
-    return render_template('homepage.html')
-
-@app.route('/dev')
-def dev():
     from webobject import HoverPanel, Grid
     panel = HoverPanel('typeracer', 'typeracer.svg', redirect='typeracer')
 
@@ -34,6 +30,15 @@ def dev():
             {obj.html}
         </div>
     """
+
+@app.route('/dev')
+def dev():
+    width='500'
+    height='500'
+    script = 'flower_circle.js'
+    from webobject import JavaCanvas
+    return JavaCanvas(script, width=width, height=height).html
+
 
 @app.route('/typeracer')
 def typeracer_home():
@@ -78,6 +83,12 @@ def typeracer_submit_score(gameid, player, time, wpm):
 
 @app.route('/randomChamp')
 def randomChamp():
+    champs = requests.get('https://ddragon.leagueoflegends.com/cdn/14.20.1/data/en_US/champion.json')
+    champs = list(champs.json()['data'].keys())
+    return random.choice(champs)
+
+@app.route('/league-champs')
+def league_champs():
     champs = requests.get('https://ddragon.leagueoflegends.com/cdn/14.20.1/data/en_US/champion.json')
     champs = list(champs.json()['data'].keys())
     return random.choice(champs)
