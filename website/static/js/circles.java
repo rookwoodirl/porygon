@@ -33,7 +33,8 @@ public float damping(float x, float f, float t) {
 FlowerCircle c;
 TextBox 
     tbRadius,
-    tbColor;
+    tbColor,
+    tbDamp;
 Drawable[] thingsToDraw;
 
 
