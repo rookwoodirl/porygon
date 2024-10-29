@@ -3,6 +3,8 @@ from flask import Flask, render_template, redirect
 import os, random, requests
 
 import typeracer
+from gitasset import GitAsset
+from webobject import JavaCanvas
 
 
 app = Flask(__name__)
@@ -28,14 +30,22 @@ def home():
 
     return obj.html
     
-
+flower_circle = GitAsset('flowercircle')
 @app.route('/flower-circle')
 def flower_circle():
     width='500'
     height='500'
-    script = 'circles.java'
-    from webobject import JavaCanvas
+    script = os.path.join('gitrepos', 'flowercircle', 'circles.java')
     return JavaCanvas(script, width=width, height=height).html
+
+snake = GitAsset('snake')
+@app.route('/snake')
+def snake():
+    width = 700
+    height = 700
+    script = os.path.join('gitrepos', 'snake', 'Snake.pde')
+    return JavaCanvas(script, width=width, height=height).html
+
 
 
 @app.route('/typeracer')

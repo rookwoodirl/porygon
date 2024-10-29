@@ -4,6 +4,8 @@
 *.key
 push.sh
 
+website/static/gitrepos/*
+
 *.DS_STORE
 *.pyc
 

@@ -1,5 +1,5 @@
 from flask import render_template
-import os
+import os, requests, json
 
 class WebObject:
     def __init__(self, name, path='', **kwargs):
@@ -42,11 +42,8 @@ class Grid(WebObject):
         super().__init__(self.name, path=self.path, style=self.style, contents=contents)
 
 
-
 class JavaCanvas(WebObject):
-    path = 'util'
-    name = 'processing'
     
     def __init__(self, script, **kwargs):
-        with open(os.path.join('website', 'static', 'js', script), 'r') as f:
-            super().__init__(self.name, path=self.path, script=script, script_text=''.join(f.readlines()), **kwargs)
+        with open(os.path.join('website', 'static', script), 'r') as f:
+            super().__init__('processing', path='util', script=script, script_text=''.join(f.readlines()), **kwargs)
