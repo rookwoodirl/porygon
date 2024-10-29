@@ -17,12 +17,10 @@ class GitAsset:
         self.update()
 
     def update(self):
-        print('nice!')
         new_info = self.get_remote_files_info()
 
         for new_file in new_info:
-            print(new_file)
-            if new_file not in self.files or new_file['sha'] != self.files['sha']: # file was updated since we last saw!
+            if new_file not in self.files or new_info[new_file]['sha'] != self.files[new_file]['sha']: # file was updated since we last saw!
                 print(f'Getting {self.repo}.{new_file}...')
                 self.get_remote_file(new_file)
                 self.files[new_file] = new_info[new_file]
@@ -42,7 +40,7 @@ class GitAsset:
             url = file_info['download_url']
             sha = file_info['sha']
 
-            out[fname] = (url, sha)
+            out[fname] = { 'url' : url, 'sha' : sha}
         return out
 
     def get_remote_file(self, file):

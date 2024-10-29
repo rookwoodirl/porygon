@@ -30,19 +30,21 @@ def home():
 
     return obj.html
     
-flower_circle = GitAsset('flowercircle')
+flower_circle_asset = GitAsset('flowercircle')
 @app.route('/flower-circle')
 def flower_circle():
     width='500'
     height='500'
+    flower_circle_asset.update()
     script = os.path.join('gitrepos', 'flowercircle', 'circles.java')
     return JavaCanvas(script, width=width, height=height).html
 
-snake = GitAsset('snake')
+snake_asset = GitAsset('snake')
 @app.route('/snake')
 def snake():
     width = 700
     height = 700
+    snake_asset.update()
     script = os.path.join('gitrepos', 'snake', 'Snake.pde')
     return JavaCanvas(script, width=width, height=height).html
 
