@@ -1,15 +1,2 @@
-*.json
-*.bp
-*.log
-*.key
-push.sh
-
-website/static/gitrepos/*
-
+*.env
 *.DS_STORE
-*.pyc
-
-api_keys/*
-assets/typeracer/scoreboard/*
-
-*/__pycache__/*

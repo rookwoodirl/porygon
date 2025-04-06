@@ -1,1 +1,0 @@
-DIR_ASSETS = 'assets'
