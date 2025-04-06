@@ -1,12 +1,11 @@
 import discord
-from openai import OpenAI, get_openapi
+from openai import OpenAI
 import os, sys
-from pydantic import Dict
 
 
 import inspect
 import typing
-from typing import get_type_hints
+from typing import get_type_hints, Dict
 
 
 from dotenv import load_dotenv
@@ -51,43 +50,7 @@ async def on_message(message):
 with open('.prompt') as f:
     PROMPT = '\n'.join(f.readlines())
 
-
-
-
-TOOLS = []
-# Set your OpenAI API key
-async def get_chatgpt_response(channel):
-    global PROMPT
-    # Fetch the last 10 messages using async iteration
-    messages = []
-
-    async for msg in channel.history(limit=30):
-        messages.append(msg)
-
-    # Reverse to get oldest to newest order
-    messages.reverse()
-
-    # Convert to OpenAI chat format
-    openai_messages = [{'role' : 'system', 'content' : PROMPT}]
-    for msg in messages:
-        role = "assistant" if msg.author.bot else "user"
-        openai_messages.append({
-            "role": role,
-            "content": f'{msg.author} says: {msg.content}'
-        })
-
-    # Call OpenAI's Chat Completion API
-    response = openai_client.chat.completions.create(
-        model="o3-mini",
-        messages=openai_messages,
-        tools=TOOLS)
-
-    return response.choices[0].message.content
-
-
-
-
-def generate_openai_tool_spec(func: callable) -> dict:
+def get_oas(func: callable) -> dict:
     """
     Generate an OpenAI-compatible function tool spec from a Python function.
     Assumes function uses type hints and a docstring.
@@ -125,6 +88,43 @@ def generate_openai_tool_spec(func: callable) -> dict:
             }
         }
     }
+
+
+
+TOOL_FUNCTIONS = []
+TOOLS = [get_oas(fun) for fun in TOOL_FUNCTIONS]
+# Set your OpenAI API key
+async def get_chatgpt_response(channel):
+    global PROMPT
+    global TOOLS
+    # Fetch the last 10 messages using async iteration
+    messages = []
+
+    async for msg in channel.history(limit=30):
+        messages.append(msg)
+
+    # Reverse to get oldest to newest order
+    messages.reverse()
+
+    # Convert to OpenAI chat format
+    openai_messages = [{'role' : 'system', 'content' : PROMPT}]
+    for msg in messages:
+        role = "assistant" if msg.author.bot else "user"
+        openai_messages.append({
+            "role": role,
+            "content": f'{msg.author} says: {msg.content}'
+        })
+
+    # Call OpenAI's Chat Completion API
+    response = openai_client.chat.completions.create(
+        model="o3-mini",
+        messages=openai_messages)
+
+    return response.choices[0].message.content
+
+
+
+
 
 def python_type_to_openapi_type(py_type: type) -> str:
     """Convert a Python type to OpenAPI-compatible type string."""
