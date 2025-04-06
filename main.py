@@ -1,6 +1,12 @@
 import discord
-from openai import OpenAI
-import os
+from openai import OpenAI, get_openapi
+import os, sys
+from pydantic import Dict
+
+
+import inspect
+import typing
+from typing import get_type_hints
 
 
 from dotenv import load_dotenv
@@ -41,10 +47,14 @@ async def on_message(message):
     await message.channel.send(response)
 
 
+
 with open('.prompt') as f:
     PROMPT = '\n'.join(f.readlines())
 
 
+
+
+TOOLS = []
 # Set your OpenAI API key
 async def get_chatgpt_response(channel):
     global PROMPT
@@ -67,15 +77,77 @@ async def get_chatgpt_response(channel):
         })
 
     # Call OpenAI's Chat Completion API
-    response = openai_client.chat.completions.create(model="o3-mini",
-    messages=openai_messages)
+    response = openai_client.chat.completions.create(
+        model="o3-mini",
+        messages=openai_messages,
+        tools=TOOLS)
 
     return response.choices[0].message.content
 
 
 
 
-# Replace 'YOUR_BOT_TOKEN' with your actual bot token
-client.run(os.environ['DISCORD_API_KEY'])
+def generate_openai_tool_spec(func: callable) -> dict:
+    """
+    Generate an OpenAI-compatible function tool spec from a Python function.
+    Assumes function uses type hints and a docstring.
+    """
+    sig = inspect.signature(func)
+    type_hints = get_type_hints(func)
+    doc = inspect.getdoc(func) or ""
+    
+    # First line of docstring is summary
+    description = doc.strip().split("\n")[0] if doc else ""
+    
+    # Build parameters schema
+    properties = {}
+    required = []
+    
+    for name, param in sig.parameters.items():
+        param_type = type_hints.get(name, str)  # fallback to str
+        param_info = {
+            "type": python_type_to_openapi_type(param_type),
+            "description": ""  # could parse extended docstrings here
+        }
+        if param.default is inspect.Parameter.empty:
+            required.append(name)
+        properties[name] = param_info
+
+    return {
+        "type": "function",
+        "function": {
+            "name": func.__name__,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required
+            }
+        }
+    }
+
+def python_type_to_openapi_type(py_type: type) -> str:
+    """Convert a Python type to OpenAPI-compatible type string."""
+    origin = typing.get_origin(py_type) or py_type
+    if origin in (int,):
+        return "integer"
+    elif origin in (float,):
+        return "number"
+    elif origin in (bool,):
+        return "boolean"
+    elif origin in (list,):
+        return "array"
+    elif origin in (dict,):
+        return "object"
+    else:
+        return "string"
+
+
+
+
+
+if __name__ == '__main__':
+    if '--deploy' in sys.argv:
+        client.run(os.environ['DISCORD_API_KEY'])
 
 
