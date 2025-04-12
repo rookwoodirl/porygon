@@ -1,146 +1,82 @@
 import discord
-from openai import OpenAI
 import os, sys
+from discord.ext import commands
 
+from tools import Tool
+from chat import get_chatgpt_response
+import importlib.util
 
-import inspect
-import typing
-from typing import get_type_hints, Dict
 
 
 from dotenv import load_dotenv
 load_dotenv()
 
-openai_client = OpenAI(api_key=os.environ['OPENAI_API_KEY'])
 
 # Create a client instance
 intents = discord.Intents.default()
-intents.message_content = True  # Needed to read message content
-client = discord.Client(intents=intents)
+intents.message_content = True  # Needed to read mes
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 
-models= [
-    'gpt-4',
-    'o3-mini',
-    'gpt-4-turbo',
-    'gpt-3.5-turbo',
-    'o1',
-    'gpt-4o',
-    'gpt-4o-mini',
-    'o1-mini',
-]
+def say_hello():
+    "Says hello!"
+    return 'Hello, world!'
+
+Tool(say_hello)
 
 
-@client.event
+
+commands_dir = "commands"
+
+
+
+def load_commands():
+    for filename in os.listdir(commands_dir):
+        if filename.endswith(".py"):
+            command_name = filename[:-3]  # Strip .py
+            filepath = os.path.join(commands_dir, filename)
+
+            # Dynamically import the module
+            spec = importlib.util.spec_from_file_location(command_name, filepath)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
+            # Create command from the run() function
+            @bot.command(name=command_name)
+            async def dynamic_command(ctx, module=module):
+                try:
+                    output = module.run()
+                    await ctx.send(str(output))
+                except Exception as e:
+                    await ctx.send(f"Error running `{command_name}`: {e}")
+            print(f"Loaded command: {command_name}")
+
+load_commands()
+
+
+@bot.event
 async def on_ready():
-    print(f'We have logged in as {client.user}')
+    print(f'We have logged in as {bot.user}')
 
-@client.event
+@bot.event
 async def on_message(message):
     # Ignore the bot's own messages
-    if message.author == client.user:
+    if message.author == bot.user:
         return
-
-    response = await get_chatgpt_response(message.channel)
-    await message.channel.send(response)
-
-
-
-with open('.prompt') as f:
-    PROMPT = '\n'.join(f.readlines())
-
-def get_oas(func: callable) -> dict:
-    """
-    Generate an OpenAI-compatible function tool spec from a Python function.
-    Assumes function uses type hints and a docstring.
-    """
-    sig = inspect.signature(func)
-    type_hints = get_type_hints(func)
-    doc = inspect.getdoc(func) or ""
-    
-    # First line of docstring is summary
-    description = doc.strip().split("\n")[0] if doc else ""
-    
-    # Build parameters schema
-    properties = {}
-    required = []
-    
-    for name, param in sig.parameters.items():
-        param_type = type_hints.get(name, str)  # fallback to str
-        param_info = {
-            "type": python_type_to_openapi_type(param_type),
-            "description": ""  # could parse extended docstrings here
-        }
-        if param.default is inspect.Parameter.empty:
-            required.append(name)
-        properties[name] = param_info
-
-    return {
-        "type": "function",
-        "function": {
-            "name": func.__name__,
-            "description": description,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required
-            }
-        }
-    }
-
-
-
-TOOL_FUNCTIONS = []
-TOOLS = [get_oas(fun) for fun in TOOL_FUNCTIONS]
-# Set your OpenAI API key
-async def get_chatgpt_response(channel):
-    global PROMPT
-    global TOOLS
-    # Fetch the last 10 messages using async iteration
-    messages = []
-
-    async for msg in channel.history(limit=30):
-        messages.append(msg)
-
-    # Reverse to get oldest to newest order
-    messages.reverse()
-
-    # Convert to OpenAI chat format
-    openai_messages = [{'role' : 'system', 'content' : PROMPT}]
-    for msg in messages:
-        role = "assistant" if msg.author.bot else "user"
-        openai_messages.append({
-            "role": role,
-            "content": f'{msg.author} says: {msg.content}'
-        })
-
-    # Call OpenAI's Chat Completion API
-    response = openai_client.chat.completions.create(
-        model="o3-mini",
-        messages=openai_messages)
-
-    return response.choices[0].message.content
-
-
-
-
-
-def python_type_to_openapi_type(py_type: type) -> str:
-    """Convert a Python type to OpenAPI-compatible type string."""
-    origin = typing.get_origin(py_type) or py_type
-    if origin in (int,):
-        return "integer"
-    elif origin in (float,):
-        return "number"
-    elif origin in (bool,):
-        return "boolean"
-    elif origin in (list,):
-        return "array"
-    elif origin in (dict,):
-        return "object"
+    elif message.content.startswith(bot.command_prefix):
+        await bot.process_commands(message)
+        return
     else:
-        return "string"
+        response = await get_chatgpt_response(message.channel)
+        await message.channel.send(response)
+
+
+
+
+
+
+
 
 
 
@@ -148,6 +84,6 @@ def python_type_to_openapi_type(py_type: type) -> str:
 
 if __name__ == '__main__':
     if '--deploy' in sys.argv:
-        client.run(os.environ['DISCORD_API_KEY'])
+        bot.run(os.environ['DISCORD_API_KEY'])
 
 
