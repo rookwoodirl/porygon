@@ -68,6 +68,7 @@ async def on_message(message):
         await bot.process_commands(message)
         return
     else:
+        return
         response = await get_chatgpt_response(message.channel)
         await message.channel.send(response)
 
