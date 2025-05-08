@@ -67,11 +67,14 @@ async def on_message(message):
     elif message.content.startswith(bot.command_prefix):
         await bot.process_commands(message)
         return
-    else:
-        return
+    elif message.channel.category and message.channel.category.name in [
+        'Languages',
+        'bot-stuff'
+    ]:
         response = await get_chatgpt_response(message.channel)
         await message.channel.send(response)
-
+    else:
+        return
 
 
 
