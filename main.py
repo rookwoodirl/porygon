@@ -43,14 +43,19 @@ def load_commands():
             spec.loader.exec_module(module)
 
             # Create command from the run() function
-            @bot.command(name=command_name)
-            async def dynamic_command(ctx, module=module):
-                try:
-                    output = await module.run(ctx)
-                    await ctx.send(str(output))
-                except Exception as e:
-                    print(f"Error running `{command_name}`: {e}")
-                    await ctx.send(f"Error running `{command_name}`: {e}")
+            def create_command(current_module):
+                @bot.command(name=command_name)
+                async def dynamic_command(ctx):
+                    try:
+                        output = await current_module.run(ctx)
+                        await ctx.send(str(output))
+                    except Exception as e:
+                        print(f"Error running `{command_name}`: {e}")
+                        await ctx.send(f"Error running `{command_name}`: {e}")
+                return dynamic_command
+
+            # Create and register the command with the correct module
+            create_command(module)
             print(f"Loaded command: {command_name}")
 
 load_commands()

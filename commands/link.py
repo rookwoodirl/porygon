@@ -134,13 +134,18 @@ async def link(ctx, *, summoner_input):
     except Exception as e:
         await ctx.send(f"An error occurred: {str(e)}")
 
-async def run(ctx, *, summoner_input=None):
+async def run(ctx):
     """
     Link your Discord account with your League of Legends account.
     Usage: !link <summoner_name#tag>
     Example: !link Doublelift#NA1
     """
     try:
+        # Get the full message content and remove the command
+        content = ctx.message.content
+        command_length = len('!link')
+        summoner_input = content[command_length:].strip()
+        
         if not summoner_input:
             await ctx.send("Please provide your summoner name in the format: name#tag")
             return
