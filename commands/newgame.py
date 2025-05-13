@@ -6,10 +6,79 @@ import random
 import traceback
 import sys
 import json
+import aiohttp
+from dotenv import load_dotenv
+
+load_dotenv()
 
 ROLE_EMOTES = ['TOP', 'JGL', 'MID', 'BOT', 'SUP']
 TEAM_EMOTES = ['🅰️', '🅱️']  # These are default Unicode emojis
 SUMMONERS_FILE = 'data/summoners.json'
+RIOT_API_KEY = os.getenv('RIOT_API_KEY')
+RIOT_API_BASE = 'https://na1.api.riotgames.com'
+CHAMPION_DATA_URL = 'http://ddragon.leagueoflegends.com/cdn/13.24.1/data/en_US/champion.json'
+
+# Cache champion data
+champion_data = None
+
+async def get_champion_name(champion_id):
+    global champion_data
+    if champion_data is None:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(CHAMPION_DATA_URL) as response:
+                data = await response.json()
+                champion_data = {int(v['key']): v['name'] for v in data['data'].values()}
+    return champion_data.get(champion_id, f"Unknown Champion {champion_id}")
+
+async def get_summoner_data(session, puuid):
+    """Get summoner data using PUUID."""
+    summoner_url = f'{RIOT_API_BASE}/lol/summoner/v4/summoners/by-puuid/{puuid}'
+    headers = {'X-Riot-Token': RIOT_API_KEY}
+    
+    async with session.get(summoner_url, headers=headers) as response:
+        if response.status != 200:
+            return None, f"Error fetching summoner: {response.status}"
+        summoner_data = await response.json()
+    
+    # Get ranked data
+    ranked_url = f'{RIOT_API_BASE}/lol/league/v4/entries/by-summoner/{summoner_data["id"]}'
+    async with session.get(ranked_url, headers=headers) as response:
+        if response.status != 200:
+            return None, f"Error fetching ranked data: {response.status}"
+        ranked_data = await response.json()
+    
+    # Get champion mastery
+    mastery_url = f'{RIOT_API_BASE}/lol/champion-mastery/v4/champion-masteries/by-puuid/{puuid}'
+    async with session.get(mastery_url, headers=headers) as response:
+        if response.status != 200:
+            return None, f"Error fetching mastery data: {response.status}"
+        mastery_data = await response.json()
+    
+    return {
+        'summoner': summoner_data,
+        'ranked': ranked_data,
+        'mastery': mastery_data
+    }, None
+
+def format_ranked_data(ranked_data):
+    if not ranked_data:
+        return "Unranked"
+    
+    # Find solo queue data
+    solo_queue = next((q for q in ranked_data if q['queueType'] == 'RANKED_SOLO_5x5'), None)
+    if not solo_queue:
+        return "Unranked"
+    
+    return f"{solo_queue['tier']} {solo_queue['rank']} {solo_queue['leaguePoints']} LP"
+
+async def format_mastery_data(mastery_data):
+    top_champs = sorted(mastery_data, key=lambda x: x['championPoints'], reverse=True)[:3]
+    champ_names = []
+    for champ in top_champs:
+        name = await get_champion_name(champ['championId'])
+        points = champ['championPoints']
+        champ_names.append(f"{name} ({points:,} pts)")
+    return champ_names
 
 def load_summoners():
     """Load the summoners mapping from the JSON file."""
@@ -45,19 +114,28 @@ class Player:
         self.preferred_roles = set()
         self.rank = None
         self.top_champs = []
+        self._initialized = False
 
-        # Load summoner data if available
+    async def initialize(self):
+        """Async initialization to fetch summoner data."""
+        if self._initialized:
+            return
+
         try:
             with open(os.path.join('data', 'summoners.json'), 'r') as f:
                 summoners = json.load(f)
-                if discord_name in summoners:
-                    summoner_data = summoners[discord_name]
-                    if 'rank' in summoner_data:
-                        self.rank = summoner_data['rank']
-                    if 'top_champs' in summoner_data:
-                        self.top_champs = summoner_data['top_champs']
+                if self.discord_name in summoners:
+                    summoner_data = summoners[self.discord_name]
+                    if 'puuid' in summoner_data:
+                        async with aiohttp.ClientSession() as session:
+                            data, error = await get_summoner_data(session, summoner_data['puuid'])
+                            if data:
+                                self.rank = format_ranked_data(data['ranked'])
+                                self.top_champs = await format_mastery_data(data['mastery'])
         except (FileNotFoundError, json.JSONDecodeError):
             pass  # Handle case where file doesn't exist or is invalid
+        
+        self._initialized = True
 
 class Match:
     def __init__(self, emotes):
@@ -126,17 +204,8 @@ class Match:
                     f'{self.emotes.get(role, ":" + role + ":")}' for role in sorted(player.preferred_roles)
                 ]) if player.preferred_roles else 'None'
                 
-                # Get rank info if available
-                rank_info = ""
-                if player.rank:
-                    rank_info = f" [{player.rank}]"
                 
-                # Get top champs if available
-                champs_info = ""
-                if player.top_champs:
-                    champs_info = f" | {', '.join(player.top_champs)}"
-                
-                queued_players.append(f'{player.discord_name}{rank_info}{champs_info} : _( {roles} )_')
+                queued_players.append(f'{player.discord_name} {player.rank or '500'} : _( {roles} )_')
             queued_players.append("")
 
         # Team/role assignments
@@ -182,7 +251,9 @@ class Match:
             return
 
         if discord_tag not in self.player_preferences:
-            self.player_preferences[discord_tag] = Player(discord_tag)
+            player = Player(discord_tag)
+            await player.initialize()  # Initialize the player asynchronously
+            self.player_preferences[discord_tag] = player
             print(f"Created new player: {discord_tag}")  # Debug print
 
         player = self.player_preferences[discord_tag]

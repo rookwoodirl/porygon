@@ -17,13 +17,23 @@ champion_data = None
 
 def load_summoners():
     """Load the summoners mapping from the JSON file."""
-    if os.path.exists(SUMMONERS_FILE):
-        with open(SUMMONERS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+    try:
+        if os.path.exists(SUMMONERS_FILE):
+            with open(SUMMONERS_FILE, 'r') as f:
+                content = f.read().strip()
+                if not content:  # If file is empty
+                    return {}
+                return json.loads(content)
+        return {}
+    except json.JSONDecodeError:
+        print(f"Error reading {SUMMONERS_FILE}, initializing empty file")
+        return {}
 
 def save_summoners(summoners):
     """Save the summoners mapping to the JSON file."""
+    # Ensure the data directory exists
+    os.makedirs(os.path.dirname(SUMMONERS_FILE), exist_ok=True)
+    
     with open(SUMMONERS_FILE, 'w') as f:
         json.dump(summoners, f, indent=2)
 
@@ -124,7 +134,7 @@ async def link(ctx, *, summoner_input):
             
             # Store the mapping
             summoners = load_summoners()
-            summoners[str(ctx.author.id)] = {
+            summoners[str(ctx.author)] = {
                 'discord_name': str(ctx.author),
                 'summoner_name': summoner_name,
                 'tag': tag,
