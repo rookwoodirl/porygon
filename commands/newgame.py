@@ -5,9 +5,18 @@ import os
 import random
 import traceback
 import sys
+import json
 
 ROLE_EMOTES = ['TOP', 'JGL', 'MID', 'BOT', 'SUP']
 TEAM_EMOTES = ['🅰️', '🅱️']  # These are default Unicode emojis
+SUMMONERS_FILE = 'data/summoners.json'
+
+def load_summoners():
+    """Load the summoners mapping from the JSON file."""
+    if os.path.exists(SUMMONERS_FILE):
+        with open(SUMMONERS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
 
 async def ensure_emotes_exist(guild):
     """Ensure all required emotes exist in the server, create them if they don't."""
@@ -34,7 +43,21 @@ class Player:
     def __init__(self, discord_name):
         self.discord_name = discord_name
         self.preferred_roles = set()
-        self.preferred_teams = set()
+        self.rank = None
+        self.top_champs = []
+
+        # Load summoner data if available
+        try:
+            with open(os.path.join('data', 'summoners.json'), 'r') as f:
+                summoners = json.load(f)
+                if discord_name in summoners:
+                    summoner_data = summoners[discord_name]
+                    if 'rank' in summoner_data:
+                        self.rank = summoner_data['rank']
+                    if 'top_champs' in summoner_data:
+                        self.top_champs = summoner_data['top_champs']
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass  # Handle case where file doesn't exist or is invalid
 
 class Match:
     def __init__(self, emotes):
@@ -46,49 +69,40 @@ class Match:
 
     def roles_dfs(self):
         print('Starting DFS for role assignment...')
+        used_players = set()  # Track all used players across both teams
         
-        def dfs(team, role_index, used_players):
+        def dfs(team, role_index):
             if role_index >= len(ROLE_EMOTES):
                 print(f'DFS completed for team {team} with used players: {used_players}')
                 return True
             
             role = ROLE_EMOTES[role_index]
             print(f'Processing role {role} for team {team}')
-            
             # If no players want this role, skip it
             if not self.preferred_roles[role]:
                 print(f'No players want role {role}, skipping')
-                return dfs(team, role_index + 1, used_players)
+                return dfs(team, role_index + 1)
             
             print(f'Players wanting role {role}: {self.preferred_roles[role]}')
-            
-            # Try each player who wants this role
             for player_name in self.preferred_roles[role]:
                 if player_name in used_players:
                     print(f'Player {player_name} already used, skipping')
                     continue
                 
-                player = self.player_preferences[player_name]
-                print(f'Checking player {player_name} for team {team}, preferred teams: {player.preferred_teams}')
+                print(f'Assigning {player_name} to {team} {role}')
+                self.players[team][role] = player_name
+                used_players.add(player_name)
                 
-                # If player has no team preference or prefers this team
-                if not player.preferred_teams or team in player.preferred_teams:
-                    print(f'Assigning {player_name} to {team} {role}')
-                    self.players[team][role] = player_name
-                    used_players.add(player_name)
-                    
-                    if dfs(team, role_index + 1, used_players):
-                        return True
-                    
-                    print(f'Backtracking: removing {player_name} from {team} {role}')
-                    self.players[team][role] = None
-                    used_players.remove(player_name)
-                else:
-                    print(f'Player {player_name} does not prefer team {team}')
+                if dfs(team, role_index + 1):
+                    return True
+                
+                print(f'Backtracking: removing {player_name} from {team} {role}')
+                self.players[team][role] = None
+                used_players.remove(player_name)
             
             # If we couldn't fill this role, try continuing with the next role
             print(f'Could not fill role {role} for team {team}, trying next role')
-            return dfs(team, role_index + 1, used_players)
+            return dfs(team, role_index + 1)
 
         # Reset players dictionary
         self.players = {team: {role: None for role in ROLE_EMOTES} for team in TEAM_EMOTES}
@@ -97,7 +111,7 @@ class Match:
         for team in TEAM_EMOTES:
             print(f'\nStarting DFS for team {team}')
             print(f'Current players state before DFS: {self.players}')
-            if not dfs(team, 0, set()):
+            if not dfs(team, 0):
                 print(f'Warning: Could not find valid assignment for team {team}')
             print(f'Team {team} roles assigned. Final state: {self.players}')
 
@@ -111,9 +125,19 @@ class Match:
                 roles = ''.join([
                     f'{self.emotes.get(role, ":" + role + ":")}' for role in sorted(player.preferred_roles)
                 ]) if player.preferred_roles else 'None'
-                queued_players.append(f'{player.discord_name} : _( {roles} )_')
+                
+                # Get rank info if available
+                rank_info = ""
+                if player.rank:
+                    rank_info = f" [{player.rank}]"
+                
+                # Get top champs if available
+                champs_info = ""
+                if player.top_champs:
+                    champs_info = f" | {', '.join(player.top_champs)}"
+                
+                queued_players.append(f'{player.discord_name}{rank_info}{champs_info} : _( {roles} )_')
             queued_players.append("")
-
 
         # Team/role assignments
         lane_matchups = []
@@ -135,7 +159,7 @@ class Match:
 
     def has_enough_players(self):
         """Check if we have enough 'ready' players (with both a role and a team) and role coverage to start team assignment."""
-        ready_players = [p for p in self.player_preferences.values() if p.preferred_roles and p.preferred_teams]
+        ready_players = [p for p in self.player_preferences.values() if p.preferred_roles]
         if len(ready_players) < 10:
             return False
         # Check if we have at least one ready player for each role
@@ -151,11 +175,10 @@ class Match:
         else:
             emoji_name = str(reaction.emoji)
         
-        discord_tag = f"{getattr(user, 'name', str(user))}"
+        discord_tag = str(user)  # Use full Discord name including discriminator
         print(f"Reaction from {discord_tag}: {emoji_name}")  # Debug print
         
-        if emoji_name not in ROLE_EMOTES + TEAM_EMOTES:
-            print(f"Invalid emoji: {emoji_name}")
+        if emoji_name not in ROLE_EMOTES:
             return
 
         if discord_tag not in self.player_preferences:
@@ -169,18 +192,12 @@ class Match:
             if emoji_name not in self.preferred_roles[emoji_name]:
                 self.preferred_roles[emoji_name].append(discord_tag)
                 print(f"Added {discord_tag} to {emoji_name} role preferences")  # Debug print
-        elif emoji_name in TEAM_EMOTES:
-            print(f"Processing team preference for {discord_tag}: {emoji_name}")
-            print(f"Current preferred_teams before: {player.preferred_teams}")
-            player.preferred_teams.add(emoji_name)
-            print(f"Current preferred_teams after: {player.preferred_teams}")
-            print(f"Added {discord_tag} to {emoji_name} team preferences")  # Debug print
 
         # Debug: print current player preferences and preferred_roles
-        print("\nCurrent player_preferences:")
+        print("Current player_preferences:")
         for k, v in self.player_preferences.items():
-            print(f"  {k}: roles={v.preferred_roles}, teams={v.preferred_teams}")
-        print("\nCurrent preferred_roles:")
+            print(f"  {k}: roles={v.preferred_roles}")
+        print("Current preferred_roles:")
         for role, users in self.preferred_roles.items():
             print(f"  {role}: {users}")
 
@@ -199,42 +216,40 @@ class Match:
             print("Role assignment complete")  # Debug print
 
 async def simulate_users(match):
-    """Simulate 9 users with hardcoded preferences, each reacting with both a role and a team, leaving Team B SUPP open for a real user."""
-    # Each tuple: (username, [roles], [teams])
+    """Simulate 9 users with hardcoded preferences."""
+    # Each tuple: (username, [roles])
     user_data = [
-        ("User1",  random.sample(ROLE_EMOTES, 3), [TEAM_EMOTES[0]]),
-        ("User2",  random.sample(ROLE_EMOTES, 3), [TEAM_EMOTES[0]]),
-        ("User3",  random.sample(ROLE_EMOTES, 3), [TEAM_EMOTES[0]]),
-        ("User4",  random.sample(ROLE_EMOTES, 3), [TEAM_EMOTES[0]]),
-        ("User5",  random.sample(ROLE_EMOTES, 3), [TEAM_EMOTES[0]]),
-        ("User6",  random.sample(ROLE_EMOTES, 3), [TEAM_EMOTES[1]]),
-        ("User7",  random.sample(ROLE_EMOTES, 3), [TEAM_EMOTES[1]]),
-        ("User8",  random.sample(ROLE_EMOTES, 3), [TEAM_EMOTES[1]]),
-        ("User9",  random.sample(ROLE_EMOTES, 3), [TEAM_EMOTES[1]]),
-        # No user for ("SUP", ["b"]) so you can react as Team B SUPP
+        ("User1",  random.sample(ROLE_EMOTES, 3)),
+        ("User2",  random.sample(ROLE_EMOTES, 3)),
+        ("User3",  random.sample(ROLE_EMOTES, 3)),
+        ("User4",  random.sample(ROLE_EMOTES, 3)),
+        ("User5",  random.sample(ROLE_EMOTES, 3)),
+        ("User6",  random.sample(ROLE_EMOTES, 3)),
+        ("User7",  random.sample(ROLE_EMOTES, 3)),
+        ("User8",  random.sample(ROLE_EMOTES, 3)),
+        ("User9",  random.sample(ROLE_EMOTES, 3)),
     ]
-    for user_name, roles, teams in user_data:
-        class MockUser:
-            def __init__(self, name):
-                self.name = name
-        user = MockUser(user_name)
-        class MockEmoji:
-            def __init__(self, name):
-                self.name = name
-            def __str__(self):
-                return self.name
-        class MockReaction:
-            def __init__(self, emoji_name):
-                self.emoji = MockEmoji(emoji_name)
-        # React for each role
+    
+    # Directly update the data structures
+    for user_name, roles in user_data:
+        match.player_preferences[user_name] = Player(user_name)
+        player = match.player_preferences[user_name]
+        player.preferred_roles = set(roles)
+        
+        # Update preferred_roles lists
         for role in roles:
-            reaction = MockReaction(role)
-            await match.on_react(reaction, user)
-        # React for each team
-        for team in teams:
-            reaction = MockReaction(team)
-            await match.on_react(reaction, user)
-        print(f"Simulated {user_name} with roles: {roles}, teams: {teams}")
+            if role not in match.preferred_roles[role]:
+                match.preferred_roles[role].append(user_name)
+        
+        print(f"Simulated {user_name} with roles: {roles}")
+    
+    # Update the message once after all simulations
+    await match.message.edit(content=match.description())
+    
+    # Run DFS if we have enough players
+    if match.has_enough_players():
+        match.roles_dfs()
+        await match.message.edit(content=match.description())
 
 async def new_game(ctx):
     """
@@ -256,11 +271,11 @@ async def new_game(ctx):
         match = Match(emotes)
         
         # Send the initial message
-        message = await channel.send("League of Legends Lobby\nReact with roles and teams to join!")
+        message = await channel.send("League of Legends Lobby\nReact with roles to join!")
         match.message = message
 
-        # Add reactions for roles and teams
-        for emote_name in ROLE_EMOTES + TEAM_EMOTES:
+        # Add reactions for roles
+        for emote_name in ROLE_EMOTES:
             emoji = emotes.get(emote_name, emote_name)
             await message.add_reaction(emoji)
 

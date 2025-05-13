@@ -10,9 +10,22 @@ load_dotenv()
 RIOT_API_KEY = os.getenv('RIOT_API_KEY')
 RIOT_API_BASE = 'https://na1.api.riotgames.com'
 CHAMPION_DATA_URL = 'http://ddragon.leagueoflegends.com/cdn/13.24.1/data/en_US/champion.json'
+SUMMONERS_FILE = 'data/summoners.json'
 
 # Cache champion data
 champion_data = None
+
+def load_summoners():
+    """Load the summoners mapping from the JSON file."""
+    if os.path.exists(SUMMONERS_FILE):
+        with open(SUMMONERS_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_summoners(summoners):
+    """Save the summoners mapping to the JSON file."""
+    with open(SUMMONERS_FILE, 'w') as f:
+        json.dump(summoners, f, indent=2)
 
 async def get_champion_name(champion_id):
     global champion_data
@@ -61,7 +74,8 @@ async def get_summoner_data(session, summoner_name, tag):
     return {
         'summoner': summoner_data,
         'ranked': ranked_data,
-        'mastery': mastery_data
+        'mastery': mastery_data,
+        'puuid': puuid
     }, None
 
 def format_ranked_data(ranked_data):
@@ -107,6 +121,16 @@ async def link(ctx, *, summoner_input):
             if error:
                 await ctx.send(error)
                 return
+            
+            # Store the mapping
+            summoners = load_summoners()
+            summoners[str(ctx.author.id)] = {
+                'discord_name': str(ctx.author),
+                'summoner_name': summoner_name,
+                'tag': tag,
+                'puuid': data['puuid']
+            }
+            save_summoners(summoners)
             
             # Create embed
             embed = discord.Embed(

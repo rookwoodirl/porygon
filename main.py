@@ -48,7 +48,8 @@ def load_commands():
                 async def dynamic_command(ctx):
                     try:
                         output = await current_module.run(ctx)
-                        await ctx.send(str(output))
+                        if output is not None:  # Only send if there's an output
+                            await ctx.send(str(output))
                     except Exception as e:
                         print(f"Error running `{command_name}`: {e}")
                         await ctx.send(f"Error running `{command_name}`: {e}")
