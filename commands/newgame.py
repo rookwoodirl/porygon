@@ -166,52 +166,34 @@ class Match:
         self.message = None
 
     def roles_dfs(self):
-        print('Starting DFS for role assignment...')
-        used_players = set()  # Track all used players across both teams
-        
-        def dfs(team, role_index):
-            if role_index >= len(ROLE_EMOTES):
-                print(f'DFS completed for team {team} with used players: {used_players}')
-                return True
-            
-            role = ROLE_EMOTES[role_index]
-            print(f'Processing role {role} for team {team}')
-            # If no players want this role, skip it
-            if not self.preferred_roles[role]:
-                print(f'No players want role {role}, skipping')
-                return dfs(team, role_index + 1)
-            
-            print(f'Players wanting role {role}: {self.preferred_roles[role]}')
-            for player_name in self.preferred_roles[role]:
-                if player_name in used_players:
-                    print(f'Player {player_name} already used, skipping')
-                    continue
-                
-                print(f'Assigning {player_name} to {team} {role}')
-                self.players[team][role] = player_name
-                used_players.add(player_name)
-                
-                if dfs(team, role_index + 1):
-                    return True
-                
-                print(f'Backtracking: removing {player_name} from {team} {role}')
-                self.players[team][role] = None
-                used_players.remove(player_name)
-            
-            # If we couldn't fill this role, try continuing with the next role
-            print(f'Could not fill role {role} for team {team}, trying next role')
-            return dfs(team, role_index + 1)
+        def solutions(player_roles, roles_index=0, team_a={role : None for role in ROLE_EMOTES}, team_b={role : None for role in ROLE_EMOTES}):
+            if roles_index >= len(ROLE_EMOTES) and None not in team_a.values() and None not in team_b.values():
+                print('Found solution!')
+                return [{ TEAM_EMOTES[0] : team_a.copy(), TEAM_EMOTES[1] : team_b.copy() }]
+            role = ROLE_EMOTES[roles_index]
 
-        # Reset players dictionary
-        self.players = {team: {role: None for role in ROLE_EMOTES} for team in TEAM_EMOTES}
-        
-        # Try to fill roles for both teams
-        for team in TEAM_EMOTES:
-            print(f'\nStarting DFS for team {team}')
-            print(f'Current players state before DFS: {self.players}')
-            if not dfs(team, 0):
-                print(f'Warning: Could not find valid assignment for team {team}')
-            print(f'Team {team} roles assigned. Final state: {self.players}')
+            all_solutions = []
+
+            for player in player_roles:
+                if player.discord_name in team_a.values() or player.discord_name in team_b.values():
+                    continue
+                if role in player.preferred_roles:
+                    if team_a[role] is None:
+                        team_a_copy = team_a.copy()
+                        team_b_copy = team_b.copy()
+                        team_a_copy[role] = player.discord_name
+                        all_solutions.extend(solutions(player_roles, roles_index, team_a_copy, team_b_copy))
+                    if team_b[role] is None and team_a[role] is not None:
+                        team_a_copy = team_a.copy()
+                        team_b_copy = team_b.copy()
+                        team_b_copy[role] = player.discord_name
+                        all_solutions.extend(solutions(player_roles, roles_index+1, team_a_copy, team_b_copy))
+
+            return all_solutions
+        sols = solutions(list(self.player_preferences.values()))
+        print(len(sols))
+        print(sols[0])
+        self.players = sols[0]
 
     def description(self):
         PAD = max([len(player.discord_name) for player in self.player_preferences.values()])
