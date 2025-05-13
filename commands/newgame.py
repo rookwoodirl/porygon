@@ -120,7 +120,6 @@ async def ensure_emotes_exist(guild):
                 with open(emote_path, 'rb') as f:
                     emoji_bytes = f.read()
                     await guild.create_custom_emoji(name=role, image=emoji_bytes)
-                    print(f"Created emote: {role}")
 
     # Get all emotes including custom ones
     emotes = {str(e.name): e for e in await guild.fetch_emojis()}
@@ -168,32 +167,33 @@ class Match:
     def roles_dfs(self):
         def solutions(player_roles, roles_index=0, team_a={role : None for role in ROLE_EMOTES}, team_b={role : None for role in ROLE_EMOTES}):
             if roles_index >= len(ROLE_EMOTES) and None not in team_a.values() and None not in team_b.values():
-                print('Found solution!')
                 return [{ TEAM_EMOTES[0] : team_a.copy(), TEAM_EMOTES[1] : team_b.copy() }]
             role = ROLE_EMOTES[roles_index]
 
             all_solutions = []
 
             for player in player_roles:
-                if player.discord_name in team_a.values() or player.discord_name in team_b.values():
+                if player in team_a.values() or player in team_b.values():
                     continue
                 if role in player.preferred_roles:
                     if team_a[role] is None:
                         team_a_copy = team_a.copy()
                         team_b_copy = team_b.copy()
-                        team_a_copy[role] = player.discord_name
+                        team_a_copy[role] = player
                         all_solutions.extend(solutions(player_roles, roles_index, team_a_copy, team_b_copy))
                     if team_b[role] is None and team_a[role] is not None:
                         team_a_copy = team_a.copy()
                         team_b_copy = team_b.copy()
-                        team_b_copy[role] = player.discord_name
+                        team_b_copy[role] = player
                         all_solutions.extend(solutions(player_roles, roles_index+1, team_a_copy, team_b_copy))
 
             return all_solutions
         sols = solutions(list(self.player_preferences.values()))
-        print(len(sols))
-        print(sols[0])
-        self.players = sols[0]
+        def lp_diff(solution):
+            team_a, team_b = list(solution.values())
+            team_a, team_b = [player.rank for player in team_a.values()], [player.rank for player in team_b.values()]
+            return abs(sum(team_a) - sum(team_b))
+        self.players = min(sols, key=lambda x: lp_diff(x))
 
     def description(self):
         PAD = max([len(player.discord_name) for player in self.player_preferences.values()])
@@ -213,8 +213,8 @@ class Match:
         # Team/role assignments
         lane_matchups = []
         for role in ROLE_EMOTES:
-            red_player = self.players[TEAM_EMOTES[0]][role] or "Empty"
-            blue_player = self.players[TEAM_EMOTES[1]][role] or "Empty"
+            red_player = getattr(self.players[TEAM_EMOTES[0]][role], 'discord_name', "Empty")
+            blue_player = getattr(self.players[TEAM_EMOTES[1]][role], 'discord_name', "Empty")
             emoji = self.emotes.get(role, role)
             # Pad names to PAD chars for rough alignment
             left = f"{red_player:<{PAD}.{PAD}}"
@@ -264,29 +264,16 @@ class Match:
             player.preferred_roles.add(emoji_name)
             if emoji_name not in self.preferred_roles[emoji_name]:
                 self.preferred_roles[emoji_name].append(discord_tag)
-                print(f"Added {discord_tag} to {emoji_name} role preferences")  # Debug print
 
-        # Debug: print current player preferences and preferred_roles
-        print("Current player_preferences:")
-        for k, v in self.player_preferences.items():
-            print(f"  {k}: roles={v.preferred_roles}")
-        print("Current preferred_roles:")
-        for role, users in self.preferred_roles.items():
-            print(f"  {role}: {users}")
 
         # Update the message with current state
         await self.message.edit(content=self.description())
-        print(f"Current players: {len(self.player_preferences)}")  # Debug print
 
         # Always clear assignments and re-run DFS if enough players and roles
         if self.has_enough_players():
-            print("Starting role assignment...")  # Debug print
-            print("Players before assignment:", self.players)
             self.players = {team: {role: None for role in ROLE_EMOTES} for team in TEAM_EMOTES}
             self.roles_dfs()
-            print("Players after assignment:", self.players)
             await self.message.edit(content=self.description())
-            print("Role assignment complete")  # Debug print
 
 async def simulate_users(match):
     """Simulate 9 users with hardcoded preferences."""
