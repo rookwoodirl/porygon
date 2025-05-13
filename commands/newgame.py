@@ -328,9 +328,9 @@ async def new_game(ctx):
         emotes = await ensure_emotes_exist(ctx.guild)
 
         # Find or create the lol-queue channel
-        channel = discord.utils.get(ctx.guild.channels, name='lol-queue')
+        channel = discord.utils.get(ctx.guild.channels, name='lol-queue-pory')
         if not channel:
-            channel = await ctx.guild.create_text_channel('lol-queue', category=ctx.channel.category)
+            channel = await ctx.guild.create_text_channel('lol-queue-pory', category=ctx.channel.category)
 
         # Create a new match
         match = Match(emotes)
