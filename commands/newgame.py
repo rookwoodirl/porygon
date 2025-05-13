@@ -221,9 +221,14 @@ class Match:
             right = f"{blue_player:<{PAD}.{PAD}}"
             lane_matchups.append(f"`{left}` {emoji} `{right}`\t@{red_player} vs. @{blue_player}")
 
+        # Calculate LP difference
+        team_a_lp = sum(getattr(self.players[TEAM_EMOTES[0]][role], 'rank', 0) for role in ROLE_EMOTES)
+        team_b_lp = sum(getattr(self.players[TEAM_EMOTES[1]][role], 'rank', 0) for role in ROLE_EMOTES)
+
         description.append('**Queued Players:**')
         description.append('\n'.join(queued_players))
         description.append('**Lane Matchups:**')
+        description.append(f'{str(team_a_lp):<{4}.{4}}LP      vs      {str(team_b_lp):<{4}.{4}}LP')
         description.append('\n'.join(lane_matchups))
         
         return '\n'.join(description)
