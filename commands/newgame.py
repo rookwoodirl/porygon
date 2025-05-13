@@ -17,6 +17,7 @@ SUMMONERS_FILE = 'data/summoners.json'
 RIOT_API_KEY = os.getenv('RIOT_API_KEY')
 RIOT_API_BASE = 'https://na1.api.riotgames.com'
 CHAMPION_DATA_URL = 'http://ddragon.leagueoflegends.com/cdn/13.24.1/data/en_US/champion.json'
+DEFAULT_LP = 1300 # Gold 1
 
 # Cache champion data
 champion_data = None
@@ -61,15 +62,34 @@ async def get_summoner_data(session, puuid):
     }, None
 
 def format_ranked_data(ranked_data):
+    TIER_MAP = {
+        'IRON' : 0,
+        'BRONZE' : 400,
+        'SILVER' : 800,
+        'GOLD' : 1200,
+        'PLATINUM' : 1400,
+        'EMERALD' : 1800,
+        'DIAMOND' : 2200,
+        'MASTER' : 2600,
+        'GRANDMASTER' : 3000,
+        'CHALLENGER' : 3000
+    }
+    RANK_MAP = {
+        'IV' : 0,
+        'III' : 1,
+        'II' : 2,
+        'I' : 3
+    }
     if not ranked_data:
         return "Unranked"
     
     # Find solo queue data
     solo_queue = next((q for q in ranked_data if q['queueType'] == 'RANKED_SOLO_5x5'), None)
     if not solo_queue:
-        return "Unranked"
+        return DEFAULT_LP
     
-    return f"{solo_queue['tier']} {solo_queue['rank']} {solo_queue['leaguePoints']} LP"
+    lp = TIER_MAP[solo_queue['tier']] + RANK_MAP[solo_queue['rank']]*100 + int(solo_queue['leaguePoints'])
+    return lp
 
 async def format_mastery_data(mastery_data):
     top_champs = sorted(mastery_data, key=lambda x: x['championPoints'], reverse=True)[:3]
@@ -112,7 +132,7 @@ class Player:
     def __init__(self, discord_name):
         self.discord_name = discord_name
         self.preferred_roles = set()
-        self.rank = None
+        self.rank = DEFAULT_LP
         self.top_champs = []
         self._initialized = False
 
@@ -130,7 +150,7 @@ class Player:
                         async with aiohttp.ClientSession() as session:
                             data, error = await get_summoner_data(session, summoner_data['puuid'])
                             if data:
-                                self.rank = format_ranked_data(data['ranked'])
+                                self.rank = format_ranked_data(data['ranked']) or DEFAULT_LP
                                 self.top_champs = await format_mastery_data(data['mastery'])
         except (FileNotFoundError, json.JSONDecodeError):
             pass  # Handle case where file doesn't exist or is invalid
@@ -205,7 +225,7 @@ class Match:
                 ]) if player.preferred_roles else 'None'
                 
                 
-                queued_players.append(f'{player.discord_name} {player.rank or '500'} : _( {roles} )_')
+                queued_players.append(f'`{player.discord_name:<{PAD}.{PAD}}` `{str(player.rank):<{4}.{4}}LP` : {roles}')
             queued_players.append("")
 
         # Team/role assignments
