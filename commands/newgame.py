@@ -345,7 +345,7 @@ async def new_game(ctx):
             await message.add_reaction(emoji)
 
         # Simulate users
-        await simulate_users(match)
+        # await simulate_users(match)
 
         # Set up reaction listener
         def check(reaction, user):
