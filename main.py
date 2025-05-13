@@ -46,9 +46,10 @@ def load_commands():
             @bot.command(name=command_name)
             async def dynamic_command(ctx, module=module):
                 try:
-                    output = module.run()
+                    output = await module.run(ctx)
                     await ctx.send(str(output))
                 except Exception as e:
+                    print(f"Error running `{command_name}`: {e}")
                     await ctx.send(f"Error running `{command_name}`: {e}")
             print(f"Loaded command: {command_name}")
 

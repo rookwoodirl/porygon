@@ -2,7 +2,7 @@
 
 
 # Always use this function name!
-def run():
+async def run(ctx):
     """
     Says hello!
     """
