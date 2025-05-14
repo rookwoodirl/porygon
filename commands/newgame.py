@@ -128,8 +128,9 @@ async def ensure_emotes_exist(guild):
     return emotes
 
 class Player:
-    def __init__(self, discord_name):
+    def __init__(self, discord_name, discord_id=None):
         self.discord_name = discord_name
+        self.discord_id = discord_id
         self.preferred_roles = set()
         self.rank = DEFAULT_LP
         self.top_champs = []
@@ -224,12 +225,16 @@ class Match:
             lane_matchups = ""
             self.in_progress = True
             for role in ROLE_EMOTES:
-                red_player = getattr(self.players[TEAM_EMOTES[0]][role], 'discord_name', "Empty")
-                blue_player = getattr(self.players[TEAM_EMOTES[1]][role], 'discord_name', "Empty")
+                red_player = self.players[TEAM_EMOTES[0]][role]
+                blue_player = self.players[TEAM_EMOTES[1]][role]
+                red_name = getattr(red_player, 'discord_name', ' ')
+                blue_name = getattr(blue_player, 'discord_name', ' ')
+                red_mention = getattr(red_player, 'discord_id', red_name)
+                blue_mention = getattr(blue_player, 'discord_id', blue_name)
                 emoji = self.emotes.get(role, role)
-                left = f"{red_player:>{PAD}.{PAD}}"
-                right = f"{blue_player:<{PAD}.{PAD}}"
-                lane_matchups += f"`{left}` {emoji} `{right}`\t@{red_player} vs. @{blue_player}\n"
+                left = f"{red_name:>{PAD}.{PAD}}"
+                right = f"{blue_name:<{PAD}.{PAD}}"
+                lane_matchups += f"`{left}` {emoji} `{right}`\t{red_mention or red_name} vs. {blue_mention or blue_name}\n"
             embed.add_field(name="Lane Matchups", value=lane_matchups, inline=False)
 
             # LP Difference
@@ -264,8 +269,8 @@ class Match:
             return
 
         if discord_tag not in self.player_preferences:
-            player = Player(discord_tag)
-            await player.initialize()  # Initialize the player asynchronously
+            player = Player(discord_tag, user.mention)
+            await player.initialize()
             self.player_preferences[discord_tag] = player
             print(f"Created new player: {discord_tag}")  # Debug print
 
@@ -275,6 +280,41 @@ class Match:
             player.preferred_roles.add(emoji_name)
             if emoji_name not in self.preferred_roles[emoji_name]:
                 self.preferred_roles[emoji_name].append(discord_tag)
+
+        # Update the message with current state
+        await self.message.edit(content=None, embed=self.description())
+
+        # Always clear assignments and re-run DFS if enough players and roles
+        if self.has_enough_players():
+            self.players = {team: {role: None for role in ROLE_EMOTES} for team in TEAM_EMOTES}
+            self.roles_dfs()
+            await self.message.edit(content=None, embed=self.description())
+
+    async def on_unreact(self, reaction, user):
+        # Get emoji name safely
+        if hasattr(reaction.emoji, 'name'):
+            emoji_name = reaction.emoji.name
+        else:
+            emoji_name = str(reaction.emoji)
+
+        discord_tag = str(user)
+        if emoji_name not in ROLE_EMOTES:
+            return
+
+        # Remove the role from the player's preferences
+        if discord_tag in self.player_preferences:
+            player = self.player_preferences[discord_tag]
+            if emoji_name in player.preferred_roles:
+                player.preferred_roles.remove(emoji_name)
+                if discord_tag in self.preferred_roles[emoji_name]:
+                    self.preferred_roles[emoji_name].remove(discord_tag)
+
+            # If the player has no more preferred roles, remove them entirely
+            if not player.preferred_roles:
+                del self.player_preferences[discord_tag]
+                for role in ROLE_EMOTES:
+                    if discord_tag in self.preferred_roles[role]:
+                        self.preferred_roles[role].remove(discord_tag)
 
         # Update the message with current state
         await self.message.edit(content=None, embed=self.description())
@@ -366,16 +406,32 @@ async def new_game(ctx):
             await message.add_reaction(emoji)
 
         # Simulate users
-        # await simulate_users(match)
+        await simulate_users(match)
 
         # Set up reaction listener
         def check(reaction, user):
             return reaction.message.id == message.id and not user.bot
 
+        def check_remove(reaction, user):
+            return reaction.message.id == message.id and not user.bot
+
         while True:
             try:
-                reaction, user = await ctx.bot.wait_for('reaction_add', timeout=3600, check=check)
-                await match.on_react(reaction, user)
+                # Wait for either add or remove, whichever comes first
+                add_task = asyncio.create_task(ctx.bot.wait_for('reaction_add', timeout=3600, check=check))
+                remove_task = asyncio.create_task(ctx.bot.wait_for('reaction_remove', timeout=3600, check=check_remove))
+                done, pending = await asyncio.wait(
+                    [add_task, remove_task],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in pending:
+                    task.cancel()
+                for task in done:
+                    reaction, user = task.result()
+                    if task is add_task:
+                        await match.on_react(reaction, user)
+                    else:
+                        await match.on_unreact(reaction, user)
             except asyncio.TimeoutError:
                 await message.edit(content="Lobby timed out after 1 hour")
                 break
