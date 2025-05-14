@@ -19,6 +19,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 
+
 def say_hello():
     "Says hello!"
     return 'Hello, world!'
@@ -27,7 +28,7 @@ Tool(say_hello)
 
 
 
-commands_dir = "commands"
+commands_dir = "custom_commands"
 
 
 
@@ -47,6 +48,7 @@ def load_commands():
                 @bot.command(name=command_name)
                 async def dynamic_command(ctx):
                     try:
+                        current_module.bot = bot
                         output = await current_module.run(ctx)
                         if output is not None:  # Only send if there's an output
                             await ctx.send(str(output))
