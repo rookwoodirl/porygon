@@ -196,42 +196,38 @@ class Match:
         self.players = min(sols, key=lambda x: lp_diff(x))
 
     def description(self):
-        PAD = max([len(player.discord_name) for player in self.player_preferences.values()])
-        description = []
-        # List all queued users and their role preferences
-        queued_players = []
+        PAD = max([len(player.discord_name) for player in self.player_preferences.values()]) if self.player_preferences else 4
+        embed = discord.Embed(
+            title="League of Legends Lobby",
+            description="React with roles to join!",
+            color=discord.Color.blue()
+        )
+        # Queued Players
         if self.player_preferences:
+            players_desc = ""
             for player in self.player_preferences.values():
                 roles = ''.join([
                     f'{self.emotes.get(role, ":" + role + ":")}' for role in sorted(player.preferred_roles)
                 ]) if player.preferred_roles else 'None'
-                
-                
-                queued_players.append(f'`{player.discord_name:<{PAD}.{PAD}}` `{str(player.rank):<{4}.{4}}LP` : {roles}')
-            queued_players.append("")
+                players_desc += f'`{player.discord_name:<{PAD}.{PAD}}` `{str(player.rank):<{4}.{4}}LP` : {roles}\n'
+            embed.add_field(name="Queued Players", value=players_desc, inline=False)
 
-        # Team/role assignments
-        lane_matchups = []
+        # Lane Matchups
+        lane_matchups = ""
         for role in ROLE_EMOTES:
             red_player = getattr(self.players[TEAM_EMOTES[0]][role], 'discord_name', "Empty")
             blue_player = getattr(self.players[TEAM_EMOTES[1]][role], 'discord_name', "Empty")
             emoji = self.emotes.get(role, role)
-            # Pad names to PAD chars for rough alignment
             left = f"{red_player:<{PAD}.{PAD}}"
             right = f"{blue_player:<{PAD}.{PAD}}"
-            lane_matchups.append(f"`{left}` {emoji} `{right}`\t@{red_player} vs. @{blue_player}")
+            lane_matchups += f"`{left}` {emoji} `{right}`\t@{red_player} vs. @{blue_player}\n"
+        embed.add_field(name="Lane Matchups", value=lane_matchups, inline=False)
 
-        # Calculate LP difference
+        # LP Difference
         team_a_lp = sum(getattr(self.players[TEAM_EMOTES[0]][role], 'rank', 0) for role in ROLE_EMOTES)
         team_b_lp = sum(getattr(self.players[TEAM_EMOTES[1]][role], 'rank', 0) for role in ROLE_EMOTES)
-
-        description.append('**Queued Players:**')
-        description.append('\n'.join(queued_players))
-        description.append('**Lane Matchups:**')
-        description.append(f'{str(team_a_lp):<{4}.{4}}LP      vs      {str(team_b_lp):<{4}.{4}}LP')
-        description.append('\n'.join(lane_matchups))
-        
-        return '\n'.join(description)
+        embed.set_footer(text=f"Team Balance: LP Difference = {abs(team_a_lp - team_b_lp)}")
+        return embed
 
     def has_enough_players(self):
         """Check if we have enough 'ready' players (with both a role and a team) and role coverage to start team assignment."""
@@ -270,15 +266,14 @@ class Match:
             if emoji_name not in self.preferred_roles[emoji_name]:
                 self.preferred_roles[emoji_name].append(discord_tag)
 
-
         # Update the message with current state
-        await self.message.edit(content=self.description())
+        await self.message.edit(content=None, embed=self.description())
 
         # Always clear assignments and re-run DFS if enough players and roles
         if self.has_enough_players():
             self.players = {team: {role: None for role in ROLE_EMOTES} for team in TEAM_EMOTES}
             self.roles_dfs()
-            await self.message.edit(content=self.description())
+            await self.message.edit(content=None, embed=self.description())
 
 async def simulate_users(match):
     """Simulate 9 users with hardcoded preferences."""
@@ -309,12 +304,12 @@ async def simulate_users(match):
         print(f"Simulated {user_name} with roles: {roles}")
     
     # Update the message once after all simulations
-    await match.message.edit(content=match.description())
+    await match.message.edit(content=None, embed=match.description())
     
     # Run DFS if we have enough players
     if match.has_enough_players():
         match.roles_dfs()
-        await match.message.edit(content=match.description())
+        await match.message.edit(content=None, embed=match.description())
 
 async def new_game(ctx):
     """
@@ -336,7 +331,7 @@ async def new_game(ctx):
         match = Match(emotes)
         
         # Send the initial message
-        message = await channel.send("League of Legends Lobby\nReact with roles to join!")
+        message = await channel.send(embed=match.description())
         match.message = message
 
         # Add reactions for roles
