@@ -32,37 +32,7 @@ async def get_champion_name(champion_id):
                 champion_data = {int(v['key']): v['name'] for v in data['data'].values()}
     return champion_data.get(champion_id, f"Unknown Champion {champion_id}")
 
-async def get_summoner_data(session, puuid):
-    """Get summoner data using PUUID."""
-    summoner_url = f'{RIOT_API_BASE}/lol/summoner/v4/summoners/by-puuid/{puuid}'
-    headers = {'X-Riot-Token': RIOT_API_KEY}
-    
-    async with session.get(summoner_url, headers=headers) as response:
-        if response.status != 200:
-            return None, f"Error fetching summoner: {response.status}"
-        summoner_data = await response.json()
-    
-    # Get ranked data
-    ranked_url = f'{RIOT_API_BASE}/lol/league/v4/entries/by-summoner/{summoner_data["id"]}'
-    async with session.get(ranked_url, headers=headers) as response:
-        if response.status != 200:
-            return None, f"Error fetching ranked data: {response.status}"
-        ranked_data = await response.json()
-    
-    # Get champion mastery
-    mastery_url = f'{RIOT_API_BASE}/lol/champion-mastery/v4/champion-masteries/by-puuid/{puuid}'
-    async with session.get(mastery_url, headers=headers) as response:
-        if response.status != 200:
-            return None, f"Error fetching mastery data: {response.status}"
-        mastery_data = await response.json()
-    
-    return {
-        'summoner': summoner_data,
-        'ranked': ranked_data,
-        'mastery': mastery_data
-    }, None
-
-def format_ranked_data(ranked_data):
+def rank_to_total_lp(ranked_data):
     TIER_MAP = {
         'IRON' : 0,
         'BRONZE' : 400,
@@ -100,13 +70,6 @@ async def format_mastery_data(mastery_data):
         points = champ['championPoints']
         champ_names.append(f"{name} ({points:,} pts)")
     return champ_names
-
-def load_summoners():
-    """Load the summoners mapping from the JSON file."""
-    if os.path.exists(SUMMONERS_FILE):
-        with open(SUMMONERS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
 
 async def ensure_emotes_exist(guild):
     """Ensure all required emotes exist in the server, create them if they don't."""
@@ -190,6 +153,39 @@ class Player:
         self._initialized = False
         self.puuid = None # the Riot id of the user
 
+
+    async def get_summoner_data(session, puuid):
+        """Get summoner data using PUUID."""
+        summoner_url = f'{RIOT_API_BASE}/lol/summoner/v4/summoners/by-puuid/{puuid}'
+        headers = {'X-Riot-Token': RIOT_API_KEY}
+        
+        async with session.get(summoner_url, headers=headers) as response:
+            if response.status != 200:
+                return None, f"Error fetching summoner: {response.status}"
+            summoner_data = await response.json()
+        
+        # Get ranked data
+        ranked_url = f'{RIOT_API_BASE}/lol/league/v4/entries/by-summoner/{summoner_data["id"]}'
+        async with session.get(ranked_url, headers=headers) as response:
+            if response.status != 200:
+                return None, f"Error fetching ranked data: {response.status}"
+            ranked_data = await response.json()
+        
+        # Get champion mastery
+        mastery_url = f'{RIOT_API_BASE}/lol/champion-mastery/v4/champion-masteries/by-puuid/{puuid}'
+        async with session.get(mastery_url, headers=headers) as response:
+            if response.status != 200:
+                return None, f"Error fetching mastery data: {response.status}"
+            mastery_data = await response.json()
+        
+        return {
+            'summoner': summoner_data,
+            'ranked': ranked_data,
+            'mastery': mastery_data
+        }, None
+
+
+
     async def get_current_match_id(self):
         """Get the current match ID for a player using their PUUID."""
         if not self.puuid:
@@ -242,9 +238,9 @@ class Player:
                     if 'puuid' in summoner_data:
                         self.puuid = summoner_data['puuid']
                         async with aiohttp.ClientSession() as session:
-                            data, error = await get_summoner_data(session, summoner_data['puuid'])
+                            data, error = await Player.get_summoner_data(session, summoner_data['puuid'])
                             if data:
-                                self.rank = format_ranked_data(data['ranked']) or DEFAULT_LP
+                                self.rank = rank_to_total_lp(data['ranked']) or DEFAULT_LP
                                 self.top_champs = await format_mastery_data(data['mastery'])
         except (FileNotFoundError, json.JSONDecodeError):
             pass  # Handle case where file doesn't exist or is invalid
@@ -302,6 +298,7 @@ class Match:
             description="React with roles to join!",
             color=discord.Color.blue()
         )
+        embed.set_footer(text=f'{self.timeout} seconds until timeout...')
 
         # Queued Players
         if self.player_preferences:
@@ -314,10 +311,14 @@ class Match:
             embed.add_field(name="Queued Players", value=players_desc, inline=False)
         else:
             embed.add_field(name="I'm waiting!", value='Click on the role emotes below to join this match', inline=False)
-            embed.set_footer(text=f'{self.timeout} seconds until timeout...')
+            
 
         # Lane Matchups
         if len(self.player_preferences) >= 10:
+            # LP Difference
+            team_a_lp = sum(getattr(self.players[TEAM_EMOTES[0]][role], 'rank', 0) for role in ROLE_EMOTES)
+            team_b_lp = sum(getattr(self.players[TEAM_EMOTES[1]][role], 'rank', 0) for role in ROLE_EMOTES)
+
             lane_matchups = ""
             self.in_progress = True
             for role in ROLE_EMOTES:
@@ -331,12 +332,7 @@ class Match:
                 left = f"{red_name:>{PAD}.{PAD}}"
                 right = f"{blue_name:<{PAD}.{PAD}}"
                 lane_matchups += f"`{left}` {emoji} `{right}`\t{red_mention} vs. {blue_mention}\n"
-            embed.add_field(name="Lane Matchups", value=lane_matchups, inline=False)
-
-            # LP Difference
-            team_a_lp = sum(getattr(self.players[TEAM_EMOTES[0]][role], 'rank', 0) for role in ROLE_EMOTES)
-            team_b_lp = sum(getattr(self.players[TEAM_EMOTES[1]][role], 'rank', 0) for role in ROLE_EMOTES)
-            embed.set_footer(text=f"Team Balance: LP Difference = {abs(team_a_lp - team_b_lp)}")
+            embed.add_field(name=f"Lane Matchups ({abs(team_a_lp - team_b_lp)}LP Diff)", value=lane_matchups, inline=False)
 
         return embed
 
