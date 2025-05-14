@@ -528,43 +528,37 @@ async def new_game(ctx):
         def check(reaction, user):
             return reaction.message.id == message.id and not user.bot
 
+        def check_remove(reaction, user):
+            return reaction.message.id == message.id and not user.bot
+
         while True:
             try:
-                # Wait for either add or remove
+                # Wait for either add or remove, whichever comes first
+                add_task = asyncio.create_task(ctx.bot.wait_for('reaction_add', timeout=3600, check=check))
+                remove_task = asyncio.create_task(ctx.bot.wait_for('reaction_remove', timeout=3600, check=check_remove))
                 done, pending = await asyncio.wait(
-                    [
-                        asyncio.create_task(ctx.bot.wait_for('reaction_add', check=check)),
-                        asyncio.create_task(ctx.bot.wait_for('reaction_remove', check=check))
-                    ],
+                    [add_task, remove_task],
                     return_when=asyncio.FIRST_COMPLETED
                 )
-                
-                # Cancel the pending task
                 for task in pending:
                     task.cancel()
-                
-                # Process the completed task
                 for task in done:
-                    try:
-                        reaction, user = await task
-                        if task.get_name() == 'reaction_add':
-                            await match.on_react(reaction, user)
-                        else:
-                            await match.on_unreact(reaction, user)
-                    except Exception as e:
-                        print(f"Error processing reaction: {e}")
-                        continue
-                        
+                    reaction, user = task.result()
+                    if task is add_task:
+                        await match.on_react(reaction, user)
+                    else:
+                        await match.on_unreact(reaction, user)
             except asyncio.TimeoutError:
                 await message.edit(content="Lobby timed out after 1 hour")
                 await message.delete()
                 break
             except Exception as e:
-                print("Error in reaction loop:", file=sys.stderr)
+                print("Error processing reaction:", file=sys.stderr)
                 print("Error type:", type(e).__name__, file=sys.stderr)
                 print("Error message:", str(e), file=sys.stderr)
                 print("Stack trace:", file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
+                await message.edit(content=f"Error processing reaction: {str(e)}")
                 continue
 
     except Exception as e:
