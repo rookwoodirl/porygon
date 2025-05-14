@@ -157,12 +157,14 @@ class Player:
         self._initialized = True
 
 class Match:
+
     def __init__(self, emotes):
         self.emotes = emotes
         self.preferred_roles = {role: [] for role in ROLE_EMOTES}
         self.players = {team: {role: None for role in ROLE_EMOTES} for team in TEAM_EMOTES}
         self.player_preferences = {}  # discord_name -> Player object
         self.message = None
+        self.in_progress = False
 
     def roles_dfs(self):
         def solutions(player_roles, roles_index=0, team_a={role : None for role in ROLE_EMOTES}, team_b={role : None for role in ROLE_EMOTES}):
@@ -202,6 +204,7 @@ class Match:
             description="React with roles to join!",
             color=discord.Color.blue()
         )
+
         # Queued Players
         if self.player_preferences:
             players_desc = ""
@@ -211,22 +214,27 @@ class Match:
                 ]) if player.preferred_roles else 'None'
                 players_desc += f'`{player.discord_name:<{PAD}.{PAD}}` `{str(player.rank):<{4}.{4}}LP` : {roles}\n'
             embed.add_field(name="Queued Players", value=players_desc, inline=False)
+        else:
+            embed.add_field(name="I'm waiting!", value='Click on the role emotes below to join this match', inline=False)
 
         # Lane Matchups
-        lane_matchups = ""
-        for role in ROLE_EMOTES:
-            red_player = getattr(self.players[TEAM_EMOTES[0]][role], 'discord_name', "Empty")
-            blue_player = getattr(self.players[TEAM_EMOTES[1]][role], 'discord_name', "Empty")
-            emoji = self.emotes.get(role, role)
-            left = f"{red_player:<{PAD}.{PAD}}"
-            right = f"{blue_player:<{PAD}.{PAD}}"
-            lane_matchups += f"`{left}` {emoji} `{right}`\t@{red_player} vs. @{blue_player}\n"
-        embed.add_field(name="Lane Matchups", value=lane_matchups, inline=False)
+        if len(self.player_preferences) >= 10:
+            lane_matchups = ""
+            self.in_progress = True
+            for role in ROLE_EMOTES:
+                red_player = getattr(self.players[TEAM_EMOTES[0]][role], 'discord_name', "Empty")
+                blue_player = getattr(self.players[TEAM_EMOTES[1]][role], 'discord_name', "Empty")
+                emoji = self.emotes.get(role, role)
+                left = f"{red_player:<{PAD}.{PAD}}"
+                right = f"{blue_player:<{PAD}.{PAD}}"
+                lane_matchups += f"`{left}` {emoji} `{right}`\t@{red_player} vs. @{blue_player}\n"
+            embed.add_field(name="Lane Matchups", value=lane_matchups, inline=False)
 
-        # LP Difference
-        team_a_lp = sum(getattr(self.players[TEAM_EMOTES[0]][role], 'rank', 0) for role in ROLE_EMOTES)
-        team_b_lp = sum(getattr(self.players[TEAM_EMOTES[1]][role], 'rank', 0) for role in ROLE_EMOTES)
-        embed.set_footer(text=f"Team Balance: LP Difference = {abs(team_a_lp - team_b_lp)}")
+            # LP Difference
+            team_a_lp = sum(getattr(self.players[TEAM_EMOTES[0]][role], 'rank', 0) for role in ROLE_EMOTES)
+            team_b_lp = sum(getattr(self.players[TEAM_EMOTES[1]][role], 'rank', 0) for role in ROLE_EMOTES)
+            embed.set_footer(text=f"Team Balance: LP Difference = {abs(team_a_lp - team_b_lp)}")
+
         return embed
 
     def has_enough_players(self):
@@ -311,6 +319,15 @@ async def simulate_users(match):
         match.roles_dfs()
         await match.message.edit(content=None, embed=match.description())
 
+async def delete_message_after_delay(match, delay=60):
+    await asyncio.sleep(delay)
+    if not match.in_progress:
+        try:
+            await match.message.delete()
+            del match
+        except Exception as e:
+            print(f"Failed to delete message: {e}")
+
 async def new_game(ctx):
     """
     !newgame 
@@ -333,6 +350,9 @@ async def new_game(ctx):
         # Send the initial message
         message = await channel.send(embed=match.description())
         match.message = message
+
+        # Start a background task to delete the message after 60 seconds
+        asyncio.create_task(delete_message_after_delay(match, delay=60))
 
         # Add reactions for roles
         for emote_name in ROLE_EMOTES:
