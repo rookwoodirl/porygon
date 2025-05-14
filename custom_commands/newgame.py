@@ -101,7 +101,7 @@ class Summoner:
             return MatchData.EMOTES[formatted_name]
         else:
             print(f"{formatted_name} wasn't in EMOTES")
-            return '`  `'
+            return ':black_square_button:'
 class MatchData:
     EMOTES = {}
     def __init__(self, match_id):
@@ -335,13 +335,11 @@ class Match:
                 blue_player = self.players[TEAM_EMOTES[1]][role]
                 red_name = getattr(red_player, 'discord_name', ' ')
                 blue_name = getattr(blue_player, 'discord_name', ' ')
-                red_champ = '`  `' 
-                blue_champ = '`  `'
+                red_champ = ':black_square_button:' 
+                blue_champ = ':black_square_button:'
                 if red_player is not None and summoners is not None and red_player.puuid in summoners:
-                    print('WAHOO')
                     red_champ = summoners[red_player.puuid].champion_emote()
                 if blue_player is not None and summoners is not None and blue_player.puuid in summoners:
-                    print('wahoo')
                     blue_champ = summoners[blue_player.puuid].champion_emote()
                  
                 
@@ -417,6 +415,7 @@ class Match:
             await self.message.edit(content=None, embed=self.description())
 
     async def on_unreact(self, reaction, user):
+        print('unreact!!!')
         if hasattr(reaction.emoji, 'name'):
             emoji_name = reaction.emoji.name
         else:
@@ -529,37 +528,43 @@ async def new_game(ctx):
         def check(reaction, user):
             return reaction.message.id == message.id and not user.bot
 
-        def check_remove(reaction, user):
-            return reaction.message.id == message.id and not user.bot
-
         while True:
             try:
-                # Wait for either add or remove, whichever comes first
-                add_task = asyncio.create_task(ctx.bot.wait_for('reaction_add', timeout=3600, check=check))
-                remove_task = asyncio.create_task(ctx.bot.wait_for('reaction_remove', timeout=3600, check=check_remove))
+                # Wait for either add or remove
                 done, pending = await asyncio.wait(
-                    [add_task, remove_task],
+                    [
+                        asyncio.create_task(ctx.bot.wait_for('reaction_add', check=check)),
+                        asyncio.create_task(ctx.bot.wait_for('reaction_remove', check=check))
+                    ],
                     return_when=asyncio.FIRST_COMPLETED
                 )
+                
+                # Cancel the pending task
                 for task in pending:
                     task.cancel()
+                
+                # Process the completed task
                 for task in done:
-                    reaction, user = task.result()
-                    if task is add_task:
-                        await match.on_react(reaction, user)
-                    else:
-                        await match.on_unreact(reaction, user)
+                    try:
+                        reaction, user = await task
+                        if task.get_name() == 'reaction_add':
+                            await match.on_react(reaction, user)
+                        else:
+                            await match.on_unreact(reaction, user)
+                    except Exception as e:
+                        print(f"Error processing reaction: {e}")
+                        continue
+                        
             except asyncio.TimeoutError:
                 await message.edit(content="Lobby timed out after 1 hour")
                 await message.delete()
                 break
             except Exception as e:
-                print("Error processing reaction:", file=sys.stderr)
+                print("Error in reaction loop:", file=sys.stderr)
                 print("Error type:", type(e).__name__, file=sys.stderr)
                 print("Error message:", str(e), file=sys.stderr)
                 print("Stack trace:", file=sys.stderr)
                 traceback.print_exc(file=sys.stderr)
-                await message.edit(content=f"Error processing reaction: {str(e)}")
                 continue
 
     except Exception as e:
