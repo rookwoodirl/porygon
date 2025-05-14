@@ -165,6 +165,7 @@ class Match:
         self.player_preferences = {}  # discord_name -> Player object
         self.message = None
         self.in_progress = False
+        self.timeout = 0
 
     def roles_dfs(self):
         def solutions(player_roles, roles_index=0, team_a={role : None for role in ROLE_EMOTES}, team_b={role : None for role in ROLE_EMOTES}):
@@ -216,6 +217,7 @@ class Match:
             embed.add_field(name="Queued Players", value=players_desc, inline=False)
         else:
             embed.add_field(name="I'm waiting!", value='Click on the role emotes below to join this match', inline=False)
+            embed.set_footer(text=f'{self.timeout} seconds until timeout...')
 
         # Lane Matchups
         if len(self.player_preferences) >= 10:
@@ -225,7 +227,7 @@ class Match:
                 red_player = getattr(self.players[TEAM_EMOTES[0]][role], 'discord_name', "Empty")
                 blue_player = getattr(self.players[TEAM_EMOTES[1]][role], 'discord_name', "Empty")
                 emoji = self.emotes.get(role, role)
-                left = f"{red_player:<{PAD}.{PAD}}"
+                left = f"{red_player:>{PAD}.{PAD}}"
                 right = f"{blue_player:<{PAD}.{PAD}}"
                 lane_matchups += f"`{left}` {emoji} `{right}`\t@{red_player} vs. @{blue_player}\n"
             embed.add_field(name="Lane Matchups", value=lane_matchups, inline=False)
@@ -319,14 +321,18 @@ async def simulate_users(match):
         match.roles_dfs()
         await match.message.edit(content=None, embed=match.description())
 
-async def delete_message_after_delay(match, delay=60):
-    await asyncio.sleep(delay)
-    if not match.in_progress:
+async def delete_message_after_delay(match, delay=60, chunk=10):
+    match.timeout = delay
+    await match.message.edit(content=None, embed=match.description())
+    await asyncio.sleep(chunk)
+    if not match.in_progress and delay <= chunk:
         try:
             await match.message.delete()
             del match
         except Exception as e:
             print(f"Failed to delete message: {e}")
+    else:
+        asyncio.create_task(delete_message_after_delay(match, delay=delay-chunk, chunk=chunk))
 
 async def new_game(ctx):
     """
@@ -340,9 +346,9 @@ async def new_game(ctx):
         emotes = await ensure_emotes_exist(ctx.guild)
 
         # Find or create the lol-queue channel
-        channel = discord.utils.get(ctx.guild.channels, name='lol-queue-pory')
-        if not channel:
-            channel = await ctx.guild.create_text_channel('lol-queue-pory', category=ctx.channel.category)
+        channel = discord.utils.get(ctx.guild.channels, name=CHANNEL_NAME)
+        if not channel and os.environ.get('ENV', 'prod') != 'dev':
+            channel = await ctx.guild.create_text_channel(CHANNEL_NAME, category=ctx.channel.category)
 
         # Create a new match
         match = Match(emotes)
@@ -392,7 +398,12 @@ async def new_game(ctx):
             await message.edit(content=f"Error in game setup: {str(e)}")
         raise
 
+CHANNEL_NAME = 'lol-queue-pory'
+if os.environ.get('ENV', 'prod') == 'dev':
+    CHANNEL_NAME += '-dev'
 async def run(ctx):
+    if ctx.channel.name != CHANNEL_NAME:
+        return
     try:
         return await new_game(ctx)
     except Exception as e:
