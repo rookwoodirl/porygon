@@ -18,6 +18,7 @@ RIOT_API_KEY = os.getenv('RIOT_API_KEY')
 RIOT_API_BASE = 'https://na1.api.riotgames.com'
 CHAMPION_DATA_URL = 'http://ddragon.leagueoflegends.com/cdn/13.24.1/data/en_US/champion.json'
 DEFAULT_LP = 1300 # Gold 1
+RIOT_REGION = 'americas'
 
 # Cache champion data
 champion_data = None
@@ -127,6 +128,55 @@ async def ensure_emotes_exist(guild):
     emotes.update({'a': '🅰️', 'b': '🅱️'})
     return emotes
 
+class Summoner:
+    def __init__(self, participant):
+        self.puuid = participant.get('puuid')
+        self.summoner_name = participant.get('summonerName')
+        self.champion_id = participant.get('championId')
+        self.champion = None  # Will be filled in async
+        self.runes = []
+        if 'perks' in participant and 'styles' in participant['perks']:
+            for style in participant['perks']['styles']:
+                if 'selections' in style:
+                    self.runes.extend([sel['perk'] for sel in style['selections']])
+        self.kda = (
+            participant.get('kills', 0),
+            participant.get('deaths', 0),
+            participant.get('assists', 0)
+        )
+        self.winner = participant.get('win', False)
+
+    async def fill_champion_name(self):
+        self.champion = await get_champion_name(self.champion_id)
+
+class MatchData:
+    def __init__(self, match_id):
+        self.match_id = match_id
+        self._data = None
+    
+    async def initialize(self):
+        await self.get_match_data()
+
+    async def get_match_data(self):
+        if self._data is not None:
+            return self._data
+        self._data = await get_match_details(self.match_id)
+        return self._data
+
+    async def summoners(self):
+        """
+        Returns a list of Summoner objects for each participant in the match,
+        with champion names filled in.
+        """
+        data = await self.get_match_data()
+        if not data or 'info' not in data or 'participants' not in data['info']:
+            return []
+
+        summoners = [Summoner(p) for p in data['info']['participants']]
+        # Fill in champion names asynchronously
+        await asyncio.gather(*(s.fill_champion_name() for s in summoners))
+        return summoners
+
 class Player:
     def __init__(self, discord_name, discord_id=None):
         self.discord_name = discord_name
@@ -135,6 +185,43 @@ class Player:
         self.rank = DEFAULT_LP
         self.top_champs = []
         self._initialized = False
+        self.puuid = None # the Riot id of the user
+
+    async def get_current_match_id(self):
+        """Get the current match ID for a player using their PUUID."""
+        if not self.puuid:
+            await self.initialize()
+        if not self.puuid:
+            return None
+        
+        url = f'https://{RIOT_REGION}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self.puuid}'
+        headers = {'X-Riot-Token': RIOT_API_KEY}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    return None
+                game_data = await resp.json()
+                return game_data.get('gameId')
+
+    async def get_most_recent_match_id(self):
+        if not self.puuid:
+            # Ensure puuid is loaded
+            await self.initialize()
+        if not self.puuid:
+            return None
+        url = f'https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/{self.puuid}/ids?start=0&count=1'
+        headers = {'X-Riot-Token': RIOT_API_KEY}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    print(f"Failed to get match ids: {resp.status}")
+                    return None
+                match_ids = await resp.json()
+                if not match_ids:
+                    print("No matches found for puuid")
+                    return None
+                return match_ids[0]
 
     async def initialize(self):
         """Async initialization to fetch summoner data."""
@@ -147,6 +234,7 @@ class Player:
                 if self.discord_name in summoners:
                     summoner_data = summoners[self.discord_name]
                     if 'puuid' in summoner_data:
+                        self.puuid = summoner_data['puuid']
                         async with aiohttp.ClientSession() as session:
                             data, error = await get_summoner_data(session, summoner_data['puuid'])
                             if data:
@@ -158,12 +246,11 @@ class Player:
         self._initialized = True
 
 class Match:
-
     def __init__(self, emotes):
         self.emotes = emotes
         self.preferred_roles = {role: [] for role in ROLE_EMOTES}
         self.players = {team: {role: None for role in ROLE_EMOTES} for team in TEAM_EMOTES}
-        self.player_preferences = {}  # discord_name -> Player object
+        self.player_preferences = {}  # user_id -> Player object
         self.message = None
         self.in_progress = False
         self.timeout = 0
@@ -199,6 +286,9 @@ class Match:
             return abs(sum(team_a) - sum(team_b))
         self.players = min(sols, key=lambda x: lp_diff(x))
 
+    async def update(self):
+        await self.message.edit(content=None, embed=self.description())
+
     def description(self):
         PAD = max([len(player.discord_name) for player in self.player_preferences.values()]) if self.player_preferences else 4
         embed = discord.Embed(
@@ -229,12 +319,12 @@ class Match:
                 blue_player = self.players[TEAM_EMOTES[1]][role]
                 red_name = getattr(red_player, 'discord_name', ' ')
                 blue_name = getattr(blue_player, 'discord_name', ' ')
-                red_mention = getattr(red_player, 'discord_id', red_name)
-                blue_mention = getattr(blue_player, 'discord_id', blue_name)
+                red_mention = f"<@{getattr(red_player, 'discord_id', '')}>" if getattr(red_player, 'discord_id', None) else f"@{red_name}"
+                blue_mention = f"<@{getattr(blue_player, 'discord_id', '')}>" if getattr(blue_player, 'discord_id', None) else f"@{blue_name}"
                 emoji = self.emotes.get(role, role)
                 left = f"{red_name:>{PAD}.{PAD}}"
                 right = f"{blue_name:<{PAD}.{PAD}}"
-                lane_matchups += f"`{left}` {emoji} `{right}`\t{red_mention or red_name} vs. {blue_mention or blue_name}\n"
+                lane_matchups += f"`{left}` {emoji} `{right}`\t{red_mention} vs. {blue_mention}\n"
             embed.add_field(name="Lane Matchups", value=lane_matchups, inline=False)
 
             # LP Difference
@@ -255,75 +345,72 @@ class Match:
                 return False
         return True
 
+    def listen_for_game_start(self):
+        async def listen():
+            games = {}
+            for _ in range(60): # 60 times
+                await asyncio.sleep(10) # sleep 10 seconds
+            for player in self.player_preferences.values():
+                match_id = await player.get_current_game_id()
+                if match_id is None:
+                    continue
+                if match_id not in games:
+                    games[match_id] = 1
+                else:
+                    games[match_id] += 1
+                
+                if games[match_id] >= 5:
+                    self.match_id = match_id
+        asyncio.create_task(listen())
+
     async def on_react(self, reaction, user):
-        # Get emoji name safely
         if hasattr(reaction.emoji, 'name'):
             emoji_name = reaction.emoji.name
         else:
             emoji_name = str(reaction.emoji)
-        
-        discord_tag = str(user)  # Use full Discord name including discriminator
-        print(f"Reaction from {discord_tag}: {emoji_name}")  # Debug print
-        
+        user_id = user.id
         if emoji_name not in ROLE_EMOTES:
             return
-
-        if discord_tag not in self.player_preferences:
-            player = Player(discord_tag, user.mention)
+        if user_id not in self.player_preferences:
+            player = Player(str(user), user_id)
             await player.initialize()
-            self.player_preferences[discord_tag] = player
-            print(f"Created new player: {discord_tag}")  # Debug print
-
-        player = self.player_preferences[discord_tag]
-        
+            self.player_preferences[user_id] = player
+            print(f"Created new player: {user_id}")
+        player = self.player_preferences[user_id]
         if emoji_name in ROLE_EMOTES:
             player.preferred_roles.add(emoji_name)
-            if emoji_name not in self.preferred_roles[emoji_name]:
-                self.preferred_roles[emoji_name].append(discord_tag)
-
-        # Update the message with current state
+            if user_id not in self.preferred_roles[emoji_name]:
+                self.preferred_roles[emoji_name].append(user_id)
         await self.message.edit(content=None, embed=self.description())
-
-        # Always clear assignments and re-run DFS if enough players and roles
         if self.has_enough_players():
             self.players = {team: {role: None for role in ROLE_EMOTES} for team in TEAM_EMOTES}
             self.roles_dfs()
             await self.message.edit(content=None, embed=self.description())
 
     async def on_unreact(self, reaction, user):
-        # Get emoji name safely
         if hasattr(reaction.emoji, 'name'):
             emoji_name = reaction.emoji.name
         else:
             emoji_name = str(reaction.emoji)
-
-        discord_tag = str(user)
+        user_id = user.id
         if emoji_name not in ROLE_EMOTES:
             return
-
-        # Remove the role from the player's preferences
-        if discord_tag in self.player_preferences:
-            player = self.player_preferences[discord_tag]
+        if user_id in self.player_preferences:
+            player = self.player_preferences[user_id]
             if emoji_name in player.preferred_roles:
                 player.preferred_roles.remove(emoji_name)
-                if discord_tag in self.preferred_roles[emoji_name]:
-                    self.preferred_roles[emoji_name].remove(discord_tag)
-
-            # If the player has no more preferred roles, remove them entirely
+                if user_id in self.preferred_roles[emoji_name]:
+                    self.preferred_roles[emoji_name].remove(user_id)
             if not player.preferred_roles:
-                del self.player_preferences[discord_tag]
+                del self.player_preferences[user_id]
                 for role in ROLE_EMOTES:
-                    if discord_tag in self.preferred_roles[role]:
-                        self.preferred_roles[role].remove(discord_tag)
-
-        # Update the message with current state
-        await self.message.edit(content=None, embed=self.description())
-
-        # Always clear assignments and re-run DFS if enough players and roles
+                    if user_id in self.preferred_roles[role]:
+                        self.preferred_roles[role].remove(user_id)
+        await self.update()
         if self.has_enough_players():
             self.players = {team: {role: None for role in ROLE_EMOTES} for team in TEAM_EMOTES}
             self.roles_dfs()
-            await self.message.edit(content=None, embed=self.description())
+            await self.update()
 
 async def simulate_users(match):
     """Simulate 9 users with hardcoded preferences."""
@@ -363,16 +450,16 @@ async def simulate_users(match):
 
 async def delete_message_after_delay(match, delay=60, chunk=10):
     match.timeout = delay
-    await match.message.edit(content=None, embed=match.description())
-    await asyncio.sleep(chunk)
-    if not match.in_progress and delay <= chunk:
-        try:
-            await match.message.delete()
-            del match
-        except Exception as e:
-            print(f"Failed to delete message: {e}")
-    else:
-        asyncio.create_task(delete_message_after_delay(match, delay=delay-chunk, chunk=chunk))
+    async def delete(match, delay, chunk):
+        for _ in range(delay // chunk):
+            await asyncio.sleep(chunk)
+            match.timeout -= chunk
+            await match.update()
+        
+        match.timeout = 0
+        await match.message.delete()
+        del match
+    asyncio.create_task(delete(match, delay, chunk))
 
 async def new_game(ctx):
     """
@@ -434,6 +521,7 @@ async def new_game(ctx):
                         await match.on_unreact(reaction, user)
             except asyncio.TimeoutError:
                 await message.edit(content="Lobby timed out after 1 hour")
+                await message.delete()
                 break
             except Exception as e:
                 print("Error processing reaction:", file=sys.stderr)
@@ -460,7 +548,25 @@ if os.environ.get('ENV', 'prod') == 'dev':
 async def run(ctx):
     if ctx.channel.name != CHANNEL_NAME:
         return
+    
+    async for message in ctx.channel.history(limit=None):
+        if message.author == ctx.bot.user or message.content == '!newgame':
+            try:
+                await message.delete()
+            except discord.NotFound:
+                continue  # Message was already deleted
+            except discord.Forbidden:
+                print(f"Missing permissions to delete message {message.id}")
+                continue
+            except Exception as e:
+                print(f"Error deleting message {message.id}: {e}")
+                continue
+
     try:
+        try:
+            await ctx.message.delete()
+        except discord.NotFound: # in case the message doesn't exist anymore
+            pass
         return await new_game(ctx)
     except Exception as e:
         print("Error in run:", file=sys.stderr)
@@ -469,3 +575,13 @@ async def run(ctx):
         print("Stack trace:", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         raise
+
+async def get_match_details(match_id):
+    url = f'https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/{match_id}'
+    headers = {'X-Riot-Token': RIOT_API_KEY}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                print(f"Failed to get match details: {resp.status}")
+                return None
+            return await resp.json()
