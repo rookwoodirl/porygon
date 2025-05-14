@@ -163,6 +163,9 @@ class MatchData:
         self._data = await get_match_details(self.match_id)
         return self._data
 
+    def completed(self):
+        return self._data['info']['endOfGameResult'] == 'GameCompleted'
+
     async def summoners(self):
         """
         Returns a list of Summoner objects for each participant in the match,
@@ -191,6 +194,9 @@ class Player:
         """Get the current match ID for a player using their PUUID."""
         if not self.puuid:
             await self.initialize()
+
+        if os.environ.get('ENV', 'prod') == 'dev':
+            return self.get_most_recent_match_id()
         if not self.puuid:
             return None
         
@@ -585,4 +591,17 @@ async def get_match_details(match_id):
             if resp.status != 200:
                 print(f"Failed to get match details: {resp.status}")
                 return None
-            return await resp.json()
+            
+            # Save match history
+            match_data = await resp.json()
+            matches_dir = os.path.join('data', 'matches')
+            os.makedirs(matches_dir, exist_ok=True)
+            
+            match_file = os.path.join(matches_dir, f'{match_id}.json')
+            try:
+                with open(match_file, 'w') as f:
+                    json.dump(match_data, f, indent=2)
+            except Exception as e:
+                print(f"Error saving match data for {match_id}: {e}")
+            
+            return match_data
