@@ -493,7 +493,8 @@ async def new_game(ctx):
             await message.add_reaction(emoji)
 
         # Simulate users
-        await simulate_users(match)
+        if os.environ.get('ENV', 'prod') == 'dev':
+            await simulate_users(match)
 
         # Set up reaction listener
         def check(reaction, user):
