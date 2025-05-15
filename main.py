@@ -6,6 +6,8 @@ from tools import Tool
 from chat import get_chatgpt_response
 import importlib.util
 
+from utils import riot
+
 
 
 from dotenv import load_dotenv
@@ -16,6 +18,7 @@ load_dotenv()
 intents = discord.Intents.default()
 intents.message_content = True  # Needed to read mes
 bot = commands.Bot(command_prefix="!", intents=intents)
+riot.bot = bot
 
 
 
