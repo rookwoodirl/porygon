@@ -167,6 +167,145 @@ class SummonerProfile:
                     raise Exception(f"Failed to get current match: {response.status}")
                 return await response.json()
     
+class Match:
+    def __init__(self, command_message):
+        """
+        Users react to a post with their role and 
+        """
+        self.players = {}
+        self.player_preferences = {}
+        self.role_emojis = []
+        self.command_message = command_message
+        self.message = None
+        self.timeout = 120
+
+
+        async def delete_after_timeout():
+            for _ in range(self.timeout // 5):
+                asyncio.sleep(5)
+                self.timeout -= 5
+            self.timeout = 0
+            if self.message is not None:
+                await self.message.delete()
+
+        asyncio.create_task(delete_after_timeout())
+
+    async def initialize(self):
+        self.message = await self.command_message.channel.send(embed=self.description())
+        await self.command_message.delete()
+        self.role_emojis = await EmojiHandler.role_emojis()
+
+        # Add reactions for roles
+        for emoji in self.role_emojis.values():
+            await self.message.add_reaction(emoji)
+
+        # Set up reaction listeners
+        def check(reaction, user):
+            return (
+                reaction.message.id == self.message.id
+                and not user.bot
+                and (hasattr(reaction.emoji, 'name') and reaction.emoji.name in self.role_emojis)
+            )
+
+        async def listen_for_reactions():
+            while True:
+                try:
+                    add_task = asyncio.create_task(self.message.guild._state._get_client().wait_for('reaction_add', check=check))
+                    remove_task = asyncio.create_task(self.message.guild._state._get_client().wait_for('reaction_remove', check=check))
+                    done, pending = await asyncio.wait(
+                        [add_task, remove_task],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for task in pending:
+                        task.cancel()
+                    for task in done:
+                        reaction, user = task.result()
+                        if task is add_task:
+                            self.on_react(reaction, user)
+                        else:
+                            self.on_unreact(reaction, user)
+                        await self.update_message()
+                except Exception as e:
+                    print(f"Error in reaction listener: {e}")
+                    break
+
+        asyncio.create_task(listen_for_reactions())
+
+    async def update_message(self):
+        await self.message.edit(content=None, embed=self.description())
+
+
+    def on_react(self, reaction, discord_user):
+
+        if reaction.name not in self.role_emojis:
+            return
+
+        if discord_user not in self.player_preferences:
+            self.player_preferences[discord_user] = []
+        self.player_preferences[discord_user] += [reaction]
+
+        if len(self.player_preferences) >= 10:
+            self._choose_roles()
+        else:
+            self.players = {}
+
+
+
+    def on_unreact(self, reaction, discord_user):
+        if discord_user not in self.player_preferences:
+            return
+        
+        prefs = self.player_preferences[discord_user]
+        if prefs == [reaction.name]:
+            del self.player_preferences[discord_user]
+        else:
+            self.player_preferences[discord_user] = [role for role in prefs if role != str(reaction.name)]
+
+
+        if len(self.player_preferences) >= 10:
+            self._choose_roles()
+        else:
+            self.players = {}
+
+        return
+    
+    
+    def _choose_roles(self):
+        def solutions(player_roles, roles_index=0, team_a={role : None for role in self.role_emojis}, team_b={role : None for role in self.role_emojis}):
+            if roles_index >= len(ROLE_EMOTES) and None not in team_a.values() and None not in team_b.values():
+                return [{ TEAM_EMOTES[0] : team_a.copy(), TEAM_EMOTES[1] : team_b.copy() }]
+            role = ROLE_EMOTES[roles_index]
+
+            all_solutions = []
+
+            for player in player_roles:
+                if player in team_a.values() or player in team_b.values():
+                    continue
+                if role in player.preferred_roles:
+                    if team_a[role] is None:
+                        team_a_copy = team_a.copy()
+                        team_b_copy = team_b.copy()
+                        team_a_copy[role] = player
+                        all_solutions.extend(solutions(player_roles, roles_index, team_a_copy, team_b_copy))
+                    if team_b[role] is None and team_a[role] is not None:
+                        team_a_copy = team_a.copy()
+                        team_b_copy = team_b.copy()
+                        team_b_copy[role] = player
+                        all_solutions.extend(solutions(player_roles, roles_index+1, team_a_copy, team_b_copy))
+
+            return all_solutions
+        sols = solutions(list(self.player_preferences.values()))
+        def lp_diff(solution):
+            team_a, team_b = list(solution.values())
+            team_a, team_b = [player.rank for player in team_a.values()], [player.rank for player in team_b.values()]
+            return abs(sum(team_a) - sum(team_b))
+        self.players = min(sols, key=lambda x: lp_diff(x))
+
+
+
+    def description(self):
+        # TODO don't worry about this, I'll do it
+        return
 
 
 class MatchData:
