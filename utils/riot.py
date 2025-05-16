@@ -409,9 +409,12 @@ class MatchMessage:
             while True:
                 await asyncio.sleep(5)
                 self.timeout -= 5
-                if self.timeout <= 0 and self.message is not None:
-                    await self.message.delete()
-                    return
+                if self.message is not None:
+                    if self.timeout <= 0:
+                        await self.message.delete()
+                        return
+                    else:
+                        await self.update_message()
 
         asyncio.create_task(update())
 
@@ -499,6 +502,7 @@ class MatchMessage:
         await self.update_message()
         if len(self.player_preferences) >= 10:
             self._choose_roles()
+            self.timeout = 60*20 # 20 minutes
             await self.update_message()
             
         else:
@@ -594,6 +598,7 @@ class MatchMessage:
         embed.add_field(name='Users', value='\n'.join(lines[::2]), inline=True)
         embed.add_field(name='...', value='\n'.join(lines[1::2]), inline=True)
         embed.add_field(name='...', value='', inline=True)
+        embed.set_footer(text=f'Timeout: {self.timeout // 60}m {self.timeout % 60}s')
 
         if self.teams:
             team_a, team_b, lp_diff = self.teams
