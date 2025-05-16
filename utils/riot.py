@@ -196,6 +196,8 @@ class SummonerProfile:
             # raise Exception(f"No player tag found for {self.discord_name}")
 
         # Get PUUID
+        if self.player_tag is None:
+            return
         game_name, tag_line = self.player_tag.split('#')
         url = f'https://{RIOT_REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}'
         headers = {'X-Riot-Token': RIOT_API_KEY}
