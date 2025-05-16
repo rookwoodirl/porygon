@@ -526,8 +526,13 @@ class MatchMessage:
             elif discord_user not in self.queued_players:
                 self.queued_players.append(discord_user)
 
+        print(f"Current preferences count: {len(self.player_preferences)}")
+        print(f"Current players count: {len(self.players)}")
+        print(f"Preferences: {self.player_preferences}")
+        
         await self.update_message()
         if len(self.player_preferences) >= 10:
+            print('Choosing roles!')
             self._choose_roles()
             self.timeout = 60*20 # 20 minutes
             await self.update_message()
@@ -556,28 +561,28 @@ class MatchMessage:
             del self.player_preferences[discord_user]
             if discord_user in self.players:
                 del self.players[discord_user]
-                discord_user = self.queued_players.pop(0)
-                profile = SummonerProfile(discord_user)
-                await profile.initialize()
-                self.players[discord_user] = profile
+                if self.queued_players:
+                    discord_user = self.queued_players.pop(0)
+                    profile = SummonerProfile(discord_user)
+                    await profile.initialize()
+                    self.players[discord_user] = profile
             if discord_user in self.queued_players:
                 self.queued_players = [player for player in self.queued_players if player != discord_user]
-
         else:
             self.player_preferences[discord_user] = [role for role in prefs if role != str(reaction.emoji.name)]
 
+        print(f"After unreact - preferences count: {len(self.player_preferences)}")
+        print(f"After unreact - players count: {len(self.players)}")
+        print(f"After unreact - preferences: {self.player_preferences}")
 
         await self.update_message()
         if len(self.player_preferences) >= 10:
+            print('Choosing roles after unreact!')
             self._choose_roles()
             await self.update_message()
         else:
             self.teams = {}
 
-        return
-    
-    
-    
     def _choose_roles(self, roles=EmojiHandler.ROLE_EMOJI_NAMES_SORTED):
         """
         players: List[Player] (must be length 10)
@@ -586,6 +591,7 @@ class MatchMessage:
             where team_a/team_b: dict of role -> Player
         """
         players = self.players
+        print("Choosing roles for players:", list(players.keys()))
         assert len(players) == 10, "Must have exactly 10 players"
 
         best_diff = float('inf')
@@ -626,9 +632,11 @@ class MatchMessage:
                         best_assignment = (team_a_roles.copy(), team_b_roles.copy(), diff)
                     # Early exit if perfect balance
                     if diff == 0:
+                        print("Found perfect balance!")
+                        self.teams = best_assignment
                         return best_assignment
 
-        print('Chose roles!')
+        print('Chose roles! Best assignment:', best_assignment)
         self.teams = best_assignment  # May be None if no valid assignment
 
 
@@ -650,8 +658,12 @@ class MatchMessage:
         embed.add_field(name='...', value='\n'.join(self.queued_players), inline=True)
         embed.set_footer(text=f'Timeout: {self.timeout // 60}m {self.timeout % 60}s')
 
+        print("Teams data:", self.teams)
         if self.teams:
             team_a, team_b, lp_diff = self.teams
+            print("Team A:", team_a)
+            print("Team B:", team_b)
+            print("LP Diff:", lp_diff)
 
             if self.match_data is None:
                 col_left = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]

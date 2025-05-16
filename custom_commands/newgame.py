@@ -66,9 +66,6 @@ async def simulate_users(match):
         ("User6",  random.sample(list(role_emotes.values()), 3)),
         ("User7",  random.sample(list(role_emotes.values()), 3)),
         ("User8",  random.sample(list(role_emotes.values()), 3)),
-        ("User9",  random.sample(list(role_emotes.values()), 3)),
-        ("User10",  random.sample(list(role_emotes.values()), 3)),
-        ("User11",  random.sample(list(role_emotes.values()), 3)),
     ]
     
     # Directly update the data structures

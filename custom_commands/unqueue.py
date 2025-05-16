@@ -13,3 +13,4 @@ async def run(ctx):
             for role in roles:
                 await match.on_unreact(SimulatedReaction(match.role_emojis[role]), ctx.message.author)
     
+    await ctx.message.delete()
