@@ -57,6 +57,7 @@ async def simulate_users(match):
     # Each tuple: (username, [roles])
     role_emotes = await EmojiHandler.role_emojis()
     user_data = [
+        ("User0",  random.sample(list(role_emotes.values()), 3)),
         ("User1",  random.sample(list(role_emotes.values()), 3)),
         ("User2",  random.sample(list(role_emotes.values()), 3)),
         ("User3",  random.sample(list(role_emotes.values()), 3)),
@@ -66,16 +67,20 @@ async def simulate_users(match):
         ("User7",  random.sample(list(role_emotes.values()), 3)),
         ("User8",  random.sample(list(role_emotes.values()), 3)),
         ("User9",  random.sample(list(role_emotes.values()), 3)),
+        ("User10",  random.sample(list(role_emotes.values()), 3)),
+        ("User11",  random.sample(list(role_emotes.values()), 3)),
     ]
     
     # Directly update the data structures
     for user_name, roles in user_data:
         for role in roles:
-
-            profile = SummonerProfile(user_name, spoof=True)
-            await profile.initialize()
-            match.players[user_name] = profile
-            match.player_preferences[user_name] = [role.name for role in roles]
+            if len(match.players) < 10:
+                profile = SummonerProfile(user_name, spoof=True)
+                await profile.initialize()
+                match.players[user_name] = profile
+                match.player_preferences[user_name] = [role.name for role in roles]
+            else:
+                await match.on_react(SimulatedReaction(role), user_name)
             # await match.on_react(SimulatedReaction(role), user_name)
         
         print(f"Simulated {user_name} with roles: {[role.name for role in roles]}")

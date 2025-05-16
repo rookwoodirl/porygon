@@ -55,7 +55,6 @@ class Summoner:
             return self.kills + self.assists
         return (self.kills + self.assists) / self.deaths
 
-
 class EmojiHandler:
     _champion_data = None
     _champion_emojis = None
@@ -149,7 +148,6 @@ class EmojiHandler:
     async def role_emojis(cls):
         return { str(emoji.name) : emoji for emoji in await bot.fetch_application_emojis() if str(emoji.name) in EmojiHandler.ROLE_EMOJI_NAMES_SORTED }
 
-
 class SummonerProfile:
     """
     Represents the out-of-game profile of a League of Legends player
@@ -195,8 +193,12 @@ class SummonerProfile:
             try:
                 with open(os.path.join('data', 'summoners.json')) as f:
                     summoners = json.load(f)
-                    if self.discord_name in list(summoners.keys()):
-                        summoner_data = summoners[self.discord_name]
+                    if self.spoof:
+                        lookup = 'UserX'
+                    else:
+                        lookup = self.discord_name
+                    if lookup in summoners:
+                        summoner_data = summoners[lookup]
                         self.player_tag = summoner_data.get('summoner_name') + '#' + summoner_data.get('tag')
                         self._puuid = summoner_data.get('puuid')
             except (FileNotFoundError, json.JSONDecodeError):
@@ -396,6 +398,7 @@ class SummonerProfile:
             return match['metadata']['matchId']
 
 class MatchMessage:
+    MESSAGES = {}
     def __init__(self, command_message):
         """
         Users react to a post with their role and 
@@ -408,6 +411,7 @@ class MatchMessage:
         self.message = None
         self.timeout = 300
         self.match_data = None
+        self.queued_players = []
 
 
         async def update():
@@ -434,6 +438,7 @@ class MatchMessage:
 
     async def initialize(self):
         self.message = await self.command_message.channel.send(embed=self.description())
+        MatchMessage.MESSAGES[self.message.id] = self
         await self.command_message.delete()
         self.role_emojis = await EmojiHandler.role_emojis()
 
@@ -463,9 +468,9 @@ class MatchMessage:
                     for task in done:
                         reaction, user = task.result()
                         if task is add_task:
-                            await self.on_react(reaction, str(user))
+                            await self.on_react(reaction, user)
                         else:
-                            await self.on_unreact(reaction, str(user))
+                            await self.on_unreact(reaction, user)
                 except Exception as e:
                     print(f"Error in reaction listener: {e}")
                     traceback.print_exc()
@@ -502,42 +507,65 @@ class MatchMessage:
 
 
 
-    async def on_react(self, reaction, discord_user):
+    async def on_react(self, reaction, user):
         print('React')
         if reaction.emoji.name not in self.role_emojis:
             return
 
+        discord_user = str(user)
         if discord_user not in self.player_preferences:
             self.player_preferences[discord_user] = []
-        self.player_preferences[discord_user] += [reaction.emoji.name]
-        if discord_user not in self.players:
-            profile = SummonerProfile(discord_user)
-            await profile.initialize()
-            self.players[discord_user] = profile
+        if reaction.emoji.name not in self.player_preferences[discord_user]:
+            self.player_preferences[discord_user] += [reaction.emoji.name]
 
+        if discord_user not in self.players:
+            if len(self.players) < 10:
+                profile = SummonerProfile(discord_user)
+                await profile.initialize()
+                self.players[discord_user] = profile
+            elif discord_user not in self.queued_players:
+                self.queued_players.append(discord_user)
 
         await self.update_message()
         if len(self.player_preferences) >= 10:
             self._choose_roles()
             self.timeout = 60*20 # 20 minutes
             await self.update_message()
-            
         else:
             self.teams = {}
 
-
-
-    async def on_unreact(self, reaction, discord_user):
+    async def on_unreact(self, reaction, user):
         print('Unreact')
+        discord_user = str(user)
         if discord_user not in self.player_preferences:
             return
         
+        # Fetch the message to get current reactions
+        try:
+            self.message = await self.message.channel.fetch_message(self.message.id)
+            real_reaction_emoji = [r.emoji for r in self.message.reactions if r.emoji.name == reaction.emoji.name]
+            if real_reaction_emoji:
+                await self.message.remove_reaction(real_reaction_emoji[0], user)
+        except Exception as e:
+            print(f"Error handling reaction removal: {e}")
+            traceback.print_exc()
+        
         prefs = self.player_preferences[discord_user]
+
         if prefs == [reaction.emoji.name]:
             del self.player_preferences[discord_user]
+            if discord_user in self.players:
+                del self.players[discord_user]
+                discord_user = self.queued_players.pop(0)
+                profile = SummonerProfile(discord_user)
+                await profile.initialize()
+                self.players[discord_user] = profile
+            if discord_user in self.queued_players:
+                self.queued_players = [player for player in self.queued_players if player != discord_user]
+
         else:
             self.player_preferences[discord_user] = [role for role in prefs if role != str(reaction.emoji.name)]
-            del self.players[discord_user]
+
 
         await self.update_message()
         if len(self.player_preferences) >= 10:
@@ -606,6 +634,11 @@ class MatchMessage:
 
 
     def description(self):
+        """
+        There should be nothing async in this!!!
+        Properties of the MatchMessage object should be fetched asynchronously
+        Those properties should be read here, in the main thread
+        """
         lines = [f'{discord_user:<{14}.{14}} : {' '.join(str(self.role_emojis[role]) for role in roles)}' for discord_user, roles in self.player_preferences.items()]
         embed = discord.Embed(
             title="League of Legends Lobby",
@@ -614,7 +647,7 @@ class MatchMessage:
         )
         embed.add_field(name='Users', value='\n'.join(lines[::2]), inline=True)
         embed.add_field(name='...', value='\n'.join(lines[1::2]), inline=True)
-        embed.add_field(name='...', value='', inline=True)
+        embed.add_field(name='...', value='\n'.join(self.queued_players), inline=True)
         embed.set_footer(text=f'Timeout: {self.timeout // 60}m {self.timeout % 60}s')
 
         if self.teams:
@@ -650,7 +683,6 @@ class MatchMessage:
             embed.add_field(name=f'Teams ({lp_diff}LP diff)', value=val, inline=False)
 
         return embed
-
 
 class MatchData:
     def __init__(self, match_id):
