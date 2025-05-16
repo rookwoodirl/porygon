@@ -29,7 +29,7 @@ class Summoner:
             participant.get('riotIdGameName') or
             participant.get('summonerName') or
             participant.get('puuid')  # fallback to puuid if no name
-        )
+        ) + '#' + participant.get('riotIdTagline')
         self.team_id = participant.get('teamId')
         self.win = participant.get('win', False)
         self.kills = participant.get('kills', 0)
@@ -39,7 +39,13 @@ class Summoner:
         self.total_damage_dealt = participant.get('totalDamageDealtToChampions', 0)
         self.vision_score = participant.get('visionScore', 0)
         self.gold_earned = participant.get('goldEarned', 0)
-        self.champion_emoji = asyncio.run(EmojiHandler.champion_emoji_by_id(self.champion_id)) or ':black_square_button:'
+        self.champion_emoji = None
+
+    async def initialize(self):
+        if self.champion_emoji:
+            return
+        self.champion_emoji = await EmojiHandler.champion_emoji_by_id(self.champion_id)
+        self.champion_emoji = self.emoji or ':black_square_button:'
 
     def kda(self):
         return (self.kills, self.deaths, self.assists)
@@ -52,6 +58,8 @@ class Summoner:
 
 class EmojiHandler:
     _champion_data = None
+    _champion_emojis = None
+
 
     @classmethod
     async def _init_champion_data(cls):
@@ -151,6 +159,8 @@ class SummonerProfile:
         mastery points
     Can optionally be associated with a Discord user's profile
     """
+    SUMMONER_LOOKUP = {}
+
     def __init__(self, discord_name: str, player_tag: Optional[str] = None, spoof=False):
         self.player_tag = player_tag  # Player#NA1
         self.discord_name = discord_name
@@ -165,6 +175,8 @@ class SummonerProfile:
         self._summoner_data = None
         self._ranked_data = None
         self._mastery_data = None
+
+        SummonerProfile.SUMMONER_LOOKUP[self.discord_name] = self
 
     async def fetch_json(self, url, headers):
         async with aiohttp.ClientSession() as session:
@@ -307,7 +319,6 @@ class SummonerProfile:
                 return await response.json()
 
     async def get_current_match(self) -> Optional[Dict]:
-        print('Current Match')
         """Get current game data if the player is in a game, or most recent match if ENV=dev."""
         if os.environ.get('ENV', 'prod') == 'dev':
             if not self._puuid:
@@ -334,7 +345,7 @@ class SummonerProfile:
             await asyncio.sleep(5)
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as resp:
-                    print("Match data response status:", resp.status, await resp.text())
+                    print("Match data response status:", resp.status)
                     if resp.status != 200:
                         print("Failed to fetch match data!")
                         return None
@@ -362,6 +373,7 @@ class SummonerProfile:
                     if response.status == 404:
                         return None  # Player is not in a game
                     if response.status != 200:
+                        raise Exception(f"Failed to get current match: {response.status}")
                         return None
                     
                     
@@ -379,25 +391,9 @@ class SummonerProfile:
 
     async def get_current_match_id(self):
         """Return the current match ID if the player is in a game, or None otherwise."""
-        if not self._puuid:
-            if not self._initialized:
-                await self.initialize()
-            if not self._puuid:
-                return None
-        url = f'https://{RIOT_REGION}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._puuid}'
-        headers = {'X-Riot-Token': RIOT_API_KEY}
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 404:
-                        return None  # Player is not in a game
-                    if response.status != 200:
-                        raise Exception(f"Failed to get current match: {response.status}")
-                    data = await response.json()
-                    return data.get('gameId')
-        except Exception as e:
-            traceback.print_exc()
-            return None
+        match = await self.get_current_match()
+        if match:
+            return match['metadata']['matchId']
 
 class MatchMessage:
     def __init__(self, command_message):
@@ -483,7 +479,6 @@ class MatchMessage:
             candidates = {}
             try:
                 if len(self.players) < 10:
-                    print('aww...', len(self.players))
                     await asyncio.sleep(10)
                     continue
                 for player in self.players.values():
@@ -496,7 +491,6 @@ class MatchMessage:
                         candidates[match_id] = 1
                     
                     if candidates[match_id] > 0:
-                        print('wahoooo!')
                         self.match_data = MatchData(match_id)
                         await self.match_data.initialize()
                         await self.update_message()
@@ -630,9 +624,24 @@ class MatchMessage:
                 col_left = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
                 col_right = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
             else:
-                participants = self.match_data.participants()
-                col_left = [participants[team_a[role]].champion_emoji if team_a[role] in participants else ':black_square_button:' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
-                col_right = [participants[team_b[role]].champion_emoji if team_a[role] in participants else ':black_square_button:' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+                participants = {p.summoner_name : p for p in self.match_data.participants()}
+
+                col_left, col_right = [], []
+                for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED:
+                    summ_a = SummonerProfile.SUMMONER_LOOKUP[team_a[role]].player_tag
+                    summ_b = SummonerProfile.SUMMONER_LOOKUP[team_b[role]].player_tag
+
+                    if summ_a and summ_a in participants:
+                        col_left.append(EmojiHandler._champion_emojis[participants[summ_a].champion_name])
+                    else:
+                        col_left.append(':black_square_button:')
+
+                    
+                    if summ_b and summ_b in participants:
+                        col_right.append(EmojiHandler._champion_emojis[participants[summ_b].champion_name])
+                    else:
+                        col_right.append(':black_square_button:')
+
 
             col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
             
@@ -666,7 +675,8 @@ class MatchData:
         if self.data is None:
             return {}
         participants_data = self.data['info']['participants']
-        return [Summoner(p, self) for p in participants_data]
+        summoners = [Summoner(p, self) for p in participants_data]
+        return summoners
 
     async def summary(self):
         """Return a summary dictionary with key match info."""
@@ -698,6 +708,7 @@ class MatchData:
 
 
         participants = self.participants()  # List[Summoner]
+        [await p.initialize() for p in participants]
 
 
         pad = max([len(p.summoner_name) for p in participants])+1
@@ -729,6 +740,7 @@ if __name__ == '__main__':
         await data.initialize()
         # print(asyncio.run(p.get_profile_summary()))
         participants = data.participants()
+        [await p.initialize() for p in participants]
         champid = participants[0].champion_id
 
 

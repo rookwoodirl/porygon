@@ -13,6 +13,9 @@ async def run(ctx):
     if ctx.channel.name != CHANNEL_NAME:
         return
     
+    if EmojiHandler._champion_emojis is None:
+        EmojiHandler._champion_emojis = {emoji.name : str(emoji) for emoji in await ctx.bot.fetch_application_emojis()}
+    
     async for message in ctx.channel.history(limit=None):
         if message.id == ctx.message.id:
             continue
