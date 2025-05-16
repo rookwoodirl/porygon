@@ -479,26 +479,41 @@ class MatchMessage:
 
     async def listen_for_match(self):
         for _ in range(100):
-            candidates = {}
             try:
                 if len(self.players) < 10:
                     await asyncio.sleep(10)
                     continue
+
+                # Get match from first player
+                first_player = next(iter(self.players.values()))
+                match_id = await first_player.get_current_match_id()
+
+                if not match_id:
+                    await asyncio.sleep(30)
+                    continue
+
+                # Get match data
+                match_data = MatchData(match_id)
+                await match_data.initialize()
+                
+                # Get participants
+                participants = {p.summoner_name: p for p in match_data.participants()}
+                
+                # Count how many of our players are in this match
+                player_count = 0
                 for player in self.players.values():
-                    match_id = await player.get_current_match_id()
-                    if not match_id:
-                        continue
-                    if match_id in candidates:
-                        candidates[match_id] += 1
-                    else:
-                        candidates[match_id] = 1
-                    
-                    if candidates[match_id] > 0:
-                        self.match_data = MatchData(match_id)
-                        await self.match_data.initialize()
-                        await self.update_message()
-                        return
-            except Exception:
+                    if player.player_tag and player.player_tag in participants:
+                        player_count += 1
+                
+                print(f"Found {player_count} players in match {match_id}")
+                if player_count >= 6:  # If 6 or more of our players are in this match
+                    print('Match found!')
+                    self.match_data = match_data
+                    await self.update_message()
+                    return
+
+            except Exception as e:
+                print(f"Error in listen_for_match: {e}")
                 traceback.print_exc()
                 
             await asyncio.sleep(10)
@@ -674,16 +689,29 @@ class MatchMessage:
                     summ_a = SummonerProfile.SUMMONER_LOOKUP[team_a[role]].player_tag
                     summ_b = SummonerProfile.SUMMONER_LOOKUP[team_b[role]].player_tag
 
-                    if summ_a and summ_a in participants:
-                        col_left.append(EmojiHandler._champion_emojis[participants[summ_a].champion_name])
+                    if summ_a in participants:
+                        kda_a = f'`{'/'.join(f'{str(i):<{2}.{2}}' for i in participants[summ_a].kda())}`'
                     else:
-                        col_left.append(':black_square_button:')
+                        kda_a = '`??/??/??`'
+                    
+                    if summ_b in participants:
+                        kda_b = f'`{'/'.join(f'{str(i):<{2}.{2}}' for i in participants[summ_b].kda())}`'
+                    else:
+                        kda_b = '`??/??/??`'
+
+                    if summ_a and summ_a in participants:
+                        emoji_a = EmojiHandler._champion_emojis[participants[summ_a].champion_name]
+                    else:
+                        emoji_a = ':black_square_button:'
 
                     
                     if summ_b and summ_b in participants:
-                        col_right.append(EmojiHandler._champion_emojis[participants[summ_b].champion_name])
+                        emoji_b = EmojiHandler._champion_emojis[participants[summ_b].champion_name]
                     else:
-                        col_right.append(':black_square_button:')
+                        emoji_b = ':black_square_button:'
+
+                    col_left.append(kda_a + ' ' + emoji_a)
+                    col_right.append(emoji_b + ' ' + kda_b)
 
 
             col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
@@ -706,11 +734,35 @@ class MatchData:
 
         url = f"https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/{self.match_id}"
         headers = {'X-Riot-Token': RIOT_API_KEY}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status != 200:
-                    raise Exception(f"Failed to fetch match data: {response.status}")
-                self.data = await response.json()
+
+        # Try to fetch the data immediately first
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as response:
+                    if response.status != 200:
+                        raise Exception(f"Failed to fetch match data: {response.status}")
+                    print('Setting initial data!')
+                    self.data = await response.json()
+        except Exception as e:
+            print(f"Initial fetch failed: {e}")
+            raise
+
+        # Start background task to keep updating the data
+        async def update_match_data():
+            for _ in range(100):
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(url, headers=headers) as response:
+                            if response.status != 200:
+                                raise Exception(f"Failed to fetch match data: {response.status}")
+                            print('Setting data!')
+                            self.data = await response.json()
+                    await asyncio.sleep(30)
+                except Exception as e:
+                    print(e)
+                    return
+                
+        asyncio.create_task(update_match_data())
 
     def participants(self):
         """Return a list of Summoner objects for each participant in the match."""
