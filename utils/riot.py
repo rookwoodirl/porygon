@@ -477,25 +477,28 @@ class MatchMessage:
     async def listen_for_match(self):
         for _ in range(100):
             candidates = {}
-            if len(self.players) < 10:
-                print('aww...', len(self.players))
-                await asyncio.sleep(10)
-                continue
-            for player in self.players.values():
-                match_id = await player.get_current_match_id()
-                if not match_id:
+            try:
+                if len(self.players) < 10:
+                    print('aww...', len(self.players))
+                    await asyncio.sleep(10)
                     continue
-                if match_id in candidates:
-                    candidates[match_id] += 1
-                else:
-                    candidates[match_id] = 1
-                
-                if candidates[match_id] > 0:
-                    print('wahoooo!')
-                    self.match_data = MatchData(match_id)
-                    await self.match_data.initialize()
-                    await self.update_message()
-                    return
+                for player in self.players.values():
+                    match_id = await player.get_current_match_id()
+                    if not match_id:
+                        continue
+                    if match_id in candidates:
+                        candidates[match_id] += 1
+                    else:
+                        candidates[match_id] = 1
+                    
+                    if candidates[match_id] > 0:
+                        print('wahoooo!')
+                        self.match_data = MatchData(match_id)
+                        await self.match_data.initialize()
+                        await self.update_message()
+                        return
+            except Exception:
+                traceback.print_exc()
                 
             await asyncio.sleep(10)
 
@@ -631,7 +634,7 @@ class MatchMessage:
             
 
             val = '\n'.join([' '.join([left, mid, right]) for left, mid, right in zip(col_left, col_mid, col_right)])
-            embed.add_field(name='Teams', value=val, inline=False)
+            embed.add_field(name=f'Teams ({lp_diff}LP diff)', value=val, inline=False)
 
         return embed
 
