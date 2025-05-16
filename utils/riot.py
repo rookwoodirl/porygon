@@ -38,6 +38,7 @@ class Summoner:
         self.total_damage_dealt = participant.get('totalDamageDealtToChampions', 0)
         self.vision_score = participant.get('visionScore', 0)
         self.gold_earned = participant.get('goldEarned', 0)
+        self.champion_emoji = asyncio.run(EmojiHandler.champion_emoji_by_id(self.champion_id)) or ':black_square_button:'
 
     def kda(self):
         return (self.kills, self.deaths, self.assists)
@@ -607,8 +608,8 @@ class MatchMessage:
                 col_left = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
                 col_right = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
             else:
-                col_left = [str(asyncio.run(EmojiHandler.champion_emoji_by_id(team_a[role]))) or ':black_square_button:' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
-                col_left = [str(asyncio.run(EmojiHandler.champion_emoji_by_id(team_b[role]))) or ':black_square_button:' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+                col_left = [team_a[role].champion_emoji for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+                col_left = [team_b[role].champion_emoji for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
 
             col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
             
