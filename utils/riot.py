@@ -283,8 +283,6 @@ class SummonerProfile:
 
     def get_rank(self) -> int:
         """Get the player's current LP"""
-        if not self._initialized:
-            raise Exception("SummonerProfile not initialized")
         return self._rank
 
     def get_mastery(self) -> List[Dict]:
