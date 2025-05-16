@@ -406,7 +406,7 @@ class MatchMessage:
         self.role_emojis = []
         self.command_message = command_message
         self.message = None
-        self.timeout = 120
+        self.timeout = 300
         self.match_data = None
 
 
@@ -414,12 +414,16 @@ class MatchMessage:
             while True:
                 await asyncio.sleep(5)
                 self.timeout -= 5
-                if self.message is not None:
-                    if self.timeout <= 0:
-                        await self.message.delete()
-                        return
-                    else:
-                        await self.update_message()
+                try:
+                    if self.message is not None:
+                        if self.timeout <= 0:
+                            await self.message.delete()
+                            return
+                        else:
+                            await self.update_message()
+                except Exception:
+                    traceback.print_exc()
+
 
         asyncio.create_task(update())
 
