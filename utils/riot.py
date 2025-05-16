@@ -528,10 +528,10 @@ class MatchMessage:
             return
         
         prefs = self.player_preferences[discord_user]
-        if prefs == [reaction.name]:
+        if prefs == [reaction.emoji.name]:
             del self.player_preferences[discord_user]
         else:
-            self.player_preferences[discord_user] = [role for role in prefs if role != str(reaction.name)]
+            self.player_preferences[discord_user] = [role for role in prefs if role != str(reaction.emoji.name)]
             del self.players[discord_user]
 
         await self.update_message()
