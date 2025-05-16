@@ -386,14 +386,18 @@ class SummonerProfile:
                 return None
         url = f'https://{RIOT_REGION}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._puuid}'
         headers = {'X-Riot-Token': RIOT_API_KEY}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status == 404:
-                    return None  # Player is not in a game
-                if response.status != 200:
-                    raise Exception(f"Failed to get current match: {response.status}")
-                data = await response.json()
-                return data.get('gameId')
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 404:
+                        return None  # Player is not in a game
+                    if response.status != 200:
+                        raise Exception(f"Failed to get current match: {response.status}")
+                    data = await response.json()
+                    return data.get('gameId')
+        except Exception as e:
+            traceback.print_exc()
+            return None
 
 class MatchMessage:
     def __init__(self, command_message):
@@ -608,7 +612,7 @@ class MatchMessage:
 
 
     def description(self):
-        lines = [f'{discord_user:<{10}.{10}} : {' '.join(str(self.role_emojis[role]) for role in roles)}' for discord_user, roles in self.player_preferences.items()]
+        lines = [f'{discord_user:<{14}.{14}} : {' '.join(str(self.role_emojis[role]) for role in roles)}' for discord_user, roles in self.player_preferences.items()]
         embed = discord.Embed(
             title="League of Legends Lobby",
             description='',# '\n'.join(lines),
