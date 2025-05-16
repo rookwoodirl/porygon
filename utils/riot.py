@@ -6,6 +6,7 @@ import asyncio
 import discord
 import json
 import itertools
+import traceback
 
 load_dotenv()
 bot = None # this is set by main.py
@@ -304,6 +305,7 @@ class SummonerProfile:
                 return await response.json()
 
     async def get_current_match(self) -> Optional[Dict]:
+        print('Current Match')
         """Get current game data if the player is in a game, or most recent match if ENV=dev."""
         if os.environ.get('ENV', 'prod') == 'dev':
             if not self._puuid:
@@ -460,6 +462,7 @@ class MatchMessage:
                             await self.on_unreact(reaction, str(user))
                 except Exception as e:
                     print(f"Error in reaction listener: {e}")
+                    traceback.print_exc()
                     break
 
         asyncio.create_task(listen_for_reactions())
@@ -469,19 +472,25 @@ class MatchMessage:
         for _ in range(100):
             candidates = {}
             if len(self.players) < 10:
-                return
+                print('aww...', len(self.players))
+                await asyncio.sleep(10)
+                continue
             for player in self.players.values():
-                match_id = player.get_current_match()
+                match_id = await player.get_current_match_id()
+                if not match_id:
+                    continue
                 if match_id in candidates:
                     candidates[match_id] += 1
                 else:
                     candidates[match_id] = 1
                 
-                if candidates[match_id] > 5:
+                if candidates[match_id] > 0:
+                    print('wahoooo!')
                     self.match_data = MatchData(match_id)
-                    self.match_data.initialize()
-                    self.update_message()
+                    await self.match_data.initialize()
+                    await self.update_message()
                     return
+                
             await asyncio.sleep(10)
 
 
@@ -608,8 +617,9 @@ class MatchMessage:
                 col_left = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
                 col_right = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
             else:
-                col_left = [team_a[role].champion_emoji for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
-                col_left = [team_b[role].champion_emoji for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+                participants = self.match_data.participants()
+                col_left = [participants[team_a[role]].champion_emoji if team_a[role] in participants else ':black_square_button:' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+                col_right = [participants[team_b[role]].champion_emoji if team_a[role] in participants else ':black_square_button:' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
 
             col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
             
@@ -638,10 +648,10 @@ class MatchData:
                     raise Exception(f"Failed to fetch match data: {response.status}")
                 self.data = await response.json()
 
-    async def participants(self):
+    def participants(self):
         """Return a list of Summoner objects for each participant in the match."""
         if self.data is None:
-            await self.initialize()
+            return {}
         participants_data = self.data['info']['participants']
         return [Summoner(p, self) for p in participants_data]
 
@@ -674,7 +684,7 @@ class MatchData:
         )
 
 
-        participants = await self.participants()  # List[Summoner]
+        participants = self.participants()  # List[Summoner]
 
 
         pad = max([len(p.summoner_name) for p in participants])+1
@@ -705,7 +715,7 @@ if __name__ == '__main__':
         data = MatchData(match_id)
         await data.initialize()
         # print(asyncio.run(p.get_profile_summary()))
-        participants = await data.participants()
+        participants = data.participants()
         champid = participants[0].champion_id
 
 
