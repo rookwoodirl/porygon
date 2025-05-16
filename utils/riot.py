@@ -362,7 +362,7 @@ class SummonerProfile:
                     if response.status == 404:
                         return None  # Player is not in a game
                     if response.status != 200:
-                        raise Exception(f"Failed to get current match: {response.status}")
+                        return None
                     
                     
                     matches_dir = os.path.join('data', 'matches')
