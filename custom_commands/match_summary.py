@@ -12,6 +12,6 @@ async def run(ctx):
 
 
 
-    embed = await match.to_embed()
+    embed = match.to_embed()
     await ctx.send(embed=embed)
     await ctx.message.delete()

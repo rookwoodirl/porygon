@@ -708,6 +708,7 @@ class MatchData:
     def __init__(self, match_id):
         self.match_id = match_id
         self.data = None  # Will hold the full match data after initialize
+        self.completed = False
 
     async def initialize(self):
         """Fetch and cache match data from Riot API."""
@@ -725,6 +726,7 @@ class MatchData:
                         raise Exception(f"Failed to fetch match data: {response.status}")
                     print('Setting initial data!')
                     self.data = await response.json()
+                    self.completed = self.data['info']['endOfGameResult'] == 'GameComplete'
         except Exception as e:
             print(f"Initial fetch failed: {e}")
             raise
@@ -733,12 +735,15 @@ class MatchData:
         async def update_match_data():
             for _ in range(100):
                 try:
+                    if self.completed:
+                        return
                     async with aiohttp.ClientSession() as session:
                         async with session.get(url, headers=headers) as response:
                             if response.status != 200:
                                 raise Exception(f"Failed to fetch match data: {response.status}")
                             print('Setting data!')
                             self.data = await response.json()
+                            self.completed = self.data['info']['endOfGameResult'] == 'GameComplete'
                     await asyncio.sleep(30)
                 except Exception as e:
                     print(e)
@@ -800,7 +805,7 @@ class MatchData:
         return description
 
     def to_embed(self):
-        embed_title = "Lane Matchups"
+        embed_title = f"Match: {self.match_id}"
         embed = discord.Embed(
             title=embed_title,
             color=discord.Color.blue()
