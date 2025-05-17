@@ -14,7 +14,7 @@ bot = None # this is set by main.py
 RIOT_API_KEY = os.getenv('RIOT_API_KEY')
 RIOT_API_BASE = 'https://na1.api.riotgames.com'
 RIOT_REGION = 'americas'
-DDRAGON_VERSION = '13.24.1'
+DDRAGON_VERSION = '15.10.1'
 
 class Summoner:
     """
@@ -83,13 +83,14 @@ class EmojiHandler:
     def champion_emoji_by_id(cls, champion_id: str):
         """Get champion emoji by ID"""
         champion_name = cls.champion_id_to_name(champion_id)
+        print(champion_id, champion_name)
         return cls.champion_emoji_by_name(champion_name)
 
     DEFAULT_EMOJI = ':black_square_button:' # TODO change this into an emoji instead of a string
     @classmethod
     def champion_emoji_by_name(cls, champion_name: str):
         """Get champion emoji by name"""
-        formatted_champion_name = champion_name.replace(' ', '').replace('.', '').replace("'", '').upper()
+        formatted_champion_name = ''.join(char for char in champion_name if char in 'abcdefghijklmnopqrstuvwxyz' + 'abcdefghijklmnopqrstuvwxyz'.upper()).upper()
 
         if formatted_champion_name in EmojiHandler._emojis:
             return str(EmojiHandler._emojis[formatted_champion_name])
