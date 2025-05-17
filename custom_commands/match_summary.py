@@ -3,7 +3,7 @@ import discord
 import os
 
 
-CHANNEL_NAME = 'lol-match-summary'
+CHANNEL_NAME = 'lol-match-history'
 if os.environ.get('ENV', 'prod') == 'dev':
     CHANNEL_NAME += '-dev'
 

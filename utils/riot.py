@@ -800,8 +800,22 @@ class MatchData:
 
         emojis = [str(EmojiHandler._emojis[role]) for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
 
-        zipped = zip(kdas_a, emojis_a, summs_a, emojis, summs_b, emojis_b, kdas_b)
+        if self.completed:
+            win_a = [':crown:' if bool(p.data['win']) else ':skull:' for p in team_a]
+            win_b = [':crown:' if bool(p.data['win']) else ':skull:' for p in team_b]
+        else:
+            win_a = ['' for p in team_a]
+            win_b = ['' for p in team_b]
+
+        zipped = zip(win_a, kdas_a, emojis_a, summs_a, emojis, summs_b, emojis_b, kdas_b, win_b)
         description = '\n'.join([' '.join(z) for z in zipped])
+
+        duration = (self.data['info']['gameEndTimestamp'] - self.data['info']['gameStartTimestamp']) // 1000
+        lines = [
+            f'Duration: {duration // 60}m {duration % 60 }s',
+        ]
+
+        description += '\n\n' + '\n'.join(lines)
 
         return description
 
