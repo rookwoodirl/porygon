@@ -306,7 +306,7 @@ class SummonerProfile:
     async def match_history(self, limit: int = 10) -> List[str]:
         """Get recent match IDs"""
         if not self._puuid:
-            await self._get_puuid()
+            await self.initialize()
 
         url = f'https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/{self._puuid}/ids'
         params = {'start': 0, 'count': limit}
@@ -682,10 +682,11 @@ class MatchMessage:
             print("Team A:", team_a)
             print("Team B:", team_b)
             print("LP Diff:", lp_diff)
-
+ 
             if self.match_data is None:
                 col_left = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
                 col_right = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+                col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
             else:
                 participants = {p.summoner_name : p for p in self.match_data.participants()}
 
@@ -719,7 +720,7 @@ class MatchMessage:
                     col_right.append(emoji_b + ' ' + kda_b)
 
 
-            col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+                col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
             
 
             val = '\n'.join([' '.join([left, mid, right]) for left, mid, right in zip(col_left, col_mid, col_right)])
