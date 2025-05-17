@@ -11,7 +11,12 @@ async def run(ctx):
 
 
     matches = [MatchData(match_id) for match_id in await player.match_history()]
-    [await match.initialize() for match in matches]
 
     for match in matches:
-        await ctx.channel.send(embed=match.to_embed())
+        try:
+            await match.initialize()
+            await ctx.channel.send(embed=match.to_embed())
+        except Exception:
+            await ctx.channel.send(message=f'No match history found for: {match.match_id}')
+
+    await ctx.message.delete()
