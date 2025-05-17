@@ -83,7 +83,6 @@ class EmojiHandler:
     def champion_emoji_by_id(cls, champion_id: str):
         """Get champion emoji by ID"""
         champion_name = cls.champion_id_to_name(champion_id)
-        print(champion_id, champion_name)
         return cls.champion_emoji_by_name(champion_name)
 
     DEFAULT_EMOJI = ':black_square_button:' # TODO change this into an emoji instead of a string
@@ -727,7 +726,8 @@ class MatchData:
                         raise Exception(f"Failed to fetch match data: {response.status}")
                     print('Setting initial data!')
                     self.data = await response.json()
-                    self.completed = self.data['info']['endOfGameResult'] == 'GameComplete'
+                    self.completed = self.data['info']['endOfGameResult'].upper() == 'GameComplete'.upper()
+                    print('completed', self.completed)
         except Exception as e:
             print(f"Initial fetch failed: {e}")
             raise
@@ -744,7 +744,8 @@ class MatchData:
                                 raise Exception(f"Failed to fetch match data: {response.status}")
                             print('Setting data!')
                             self.data = await response.json()
-                            self.completed = self.data['info']['endOfGameResult'] == 'GameComplete'
+                            self.completed = self.data['info']['endOfGameResult'].upper() == 'GameComplete'.upper()
+                            print('completed', self.completed)
                     await asyncio.sleep(30)
                 except Exception as e:
                     print(e)
@@ -800,22 +801,25 @@ class MatchData:
 
         emojis = [str(EmojiHandler._emojis[role]) for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
 
-        if self.completed:
-            win_a = [':crown:' if bool(p.data['win']) else ':skull:' for p in team_a]
-            win_b = [':crown:' if bool(p.data['win']) else ':skull:' for p in team_b]
-        else:
-            win_a = ['' for p in team_a]
-            win_b = ['' for p in team_b]
 
-        zipped = zip(win_a, kdas_a, emojis_a, summs_a, emojis, summs_b, emojis_b, kdas_b, win_b)
-        description = '\n'.join([' '.join(z) for z in zipped])
+        zipped = zip(kdas_a, emojis_a, summs_a, emojis, summs_b, emojis_b, kdas_b)
+
+
+        if self.completed:
+            if bool(team_a[0].data['win']):
+                description = ' '.join([f'`{' '*8}`', ':crown:', f'`{' '*pad}`', ':muscle:',  f'`{' '*pad}`', ':skull:', f'`{' '*8}`']) + '\n'
+            else:
+                description = ' '.join([f'`{' '*8}`', ':skull:', f'`{' '*pad}`', ':muscle:',  f'`{' '*pad}`', ':crown:', f'`{' '*8}`']) + '\n'
+          
+        description += '\n'.join([' '.join(z) for z in zipped]) + '\n'
 
         duration = (self.data['info']['gameEndTimestamp'] - self.data['info']['gameStartTimestamp']) // 1000
         lines = [
             f'Duration: {duration // 60}m {duration % 60 }s',
         ]
 
-        description += '\n\n' + '\n'.join(lines)
+
+        description += '\n'.join(lines)
 
         return description
 
