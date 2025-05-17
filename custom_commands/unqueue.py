@@ -6,6 +6,8 @@ class SimulatedReaction:
         self.emoji = emoji
 
 async def run(ctx):
+    if not EmojiHandler._initialized:
+        await EmojiHandler.initialize()
     print(ctx.message.author)
     for match in MatchMessage.MESSAGES.values():
         if match.message.guild == ctx.message.guild and match.message.channel == ctx.message.channel and (ctx.message.author.name in match.players or ctx.message.author.name in match.queued_players):

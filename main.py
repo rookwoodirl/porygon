@@ -70,6 +70,7 @@ load_commands()
 @bot.event
 async def on_ready():
     print(f'We have logged in as {bot.user}')
+    await riot.EmojiHandler.initialize()
 
 @bot.event
 async def on_message(message):

@@ -39,13 +39,7 @@ class Summoner:
         self.total_damage_dealt = participant.get('totalDamageDealtToChampions', 0)
         self.vision_score = participant.get('visionScore', 0)
         self.gold_earned = participant.get('goldEarned', 0)
-        self.champion_emoji = None
-
-    async def initialize(self):
-        if self.champion_emoji:
-            return
-        self.champion_emoji = await EmojiHandler.champion_emoji_by_id(self.champion_id)
-        self.champion_emoji = self.emoji or ':black_square_button:'
+        self.champion_emoji = EmojiHandler.champion_emoji_by_id(self.champion_id)
 
     def kda(self):
         return (self.kills, self.deaths, self.assists)
@@ -57,8 +51,14 @@ class Summoner:
 
 class EmojiHandler:
     _champion_data = None
-    _champion_emojis = None
+    _emojis = None
+    _initialized = False
 
+    @classmethod
+    async def initialize(cls):
+        await EmojiHandler._init_champion_data()
+        EmojiHandler._emojis = { emoji.name.upper() : emoji for emoji in await bot.fetch_application_emojis() }
+        EmojiHandler._initialized = True
 
     @classmethod
     async def _init_champion_data(cls):
@@ -75,46 +75,51 @@ class EmojiHandler:
                 cls._champion_data = {str(v['key']): v['name'] for v in data['data'].values()}
 
     @classmethod
-    async def champion_id_to_name(cls, champion_id: str) -> str:
+    def champion_id_to_name(cls, champion_id: str) -> str:
         """Convert a champion ID to the champion name"""
-        await cls._init_champion_data()
         return cls._champion_data.get(str(champion_id), f"Unknown Champion {champion_id}")
 
     @classmethod
-    async def champion_emoji_by_id(cls, champion_id: str):
+    def champion_emoji_by_id(cls, champion_id: str):
         """Get champion emoji by ID"""
-        champion_name = await cls.champion_id_to_name(champion_id)
-        return await cls.champion_emoji_by_name(champion_name)
+        champion_name = cls.champion_id_to_name(champion_id)
+        return cls.champion_emoji_by_name(champion_name)
 
+    DEFAULT_EMOJI = ':black_square_button:' # TODO change this into an emoji instead of a string
     @classmethod
-    async def champion_emoji_by_name(cls, champion_name: str):
+    def champion_emoji_by_name(cls, champion_name: str):
         """Get champion emoji by name"""
-        emojis = {str(emoji.name): emoji for emoji in await bot.fetch_application_emojis()}
-        champion_name = champion_name.replace(' ', '').replace('.', '')
+        formatted_champion_name = champion_name.replace(' ', '').replace('.', '').replace("'", '').upper()
 
-        if champion_name in emojis:
-            return emojis[champion_name]
+        if formatted_champion_name in EmojiHandler._emojis:
+            return str(EmojiHandler._emojis[formatted_champion_name])
         else:
-            # Get champion icon from Data Dragon
-            url = f'http://ddragon.leagueoflegends.com/cdn/{DDRAGON_VERSION}/img/champion/{champion_name}.png'
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        print(f"Failed to get champion icon for {champion_name}")
-                        return None
-                    image_data = await response.read()
-                    
-                    # Create new emoji
-                    try:
-                        emoji = await bot.create_application_emoji(
-                            name=champion_name,
-                            image=image_data
-                        )
-                        print(f'Created {emoji.name} for Pory!')
-                        return emoji
-                    except Exception as e:
-                        print(f"Failed to create emoji for {champion_name}: {e}")
-                        return None
+            print(champion_name)
+            return EmojiHandler.DEFAULT_EMOJI
+            """
+            async def fetch_new_emoji():
+                url = f'http://ddragon.leagueoflegends.com/cdn/{DDRAGON_VERSION}/img/champion/{champion_name}.png'
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as response:
+                        if response.status != 200:
+                            print(f"Failed to get champion icon for {champion_name}")
+                            return None
+                        image_data = await response.read()
+                        
+                        # Create new emoji
+                        try:
+                            emoji = await bot.create_application_emoji(
+                                name=champion_name,
+                                image=image_data
+                            )
+                            print(f'Created {emoji.name} for Pory!')
+                            return emoji
+                        except Exception as e:
+                            print(f"Failed to create emoji for {champion_name}: {e}")
+                            return None
+            """
+            # asyncio.run(fetch_new_emoji()) # TODO creat_task this in an asynchronous thread-safe way 
+            
 
     @classmethod
     async def summoner_profile_picture(cls, picture_id: str):
@@ -502,7 +507,7 @@ class MatchMessage:
                 await match_data.initialize()
                 
                 # Get participants
-                participants = {p.summoner_name: p for p in match_data.participants()}
+                participants = match_data.participants()
                 
                 # Count how many of our players are in this match
                 player_count = 0
@@ -676,52 +681,23 @@ class MatchMessage:
         embed.add_field(name='...', value='\n'.join(self.queued_players), inline=True)
         embed.set_footer(text=f'Timeout: {self.timeout // 60}m {self.timeout % 60}s')
 
-        print("Teams data:", self.teams)
-        if self.teams:
+        if self.match_data is not None:
+            if self.teams:
+                _, _, lp_diff = self.teams
+            else:
+                lp_diff = '???'
+            embed.add_field(name=f'Teams ({str(lp_diff)}LP diff)', value=str(self.match_data))
+
+        # print("Teams data:", self.teams)
+        elif self.teams:
             team_a, team_b, lp_diff = self.teams
             print("Team A:", team_a)
             print("Team B:", team_b)
             print("LP Diff:", lp_diff)
- 
-            if self.match_data is None:
-                col_left = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
-                col_right = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
-                col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
-            else:
-                participants = {p.summoner_name : p for p in self.match_data.participants()}
 
-                col_left, col_right = [], []
-                for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED:
-                    summ_a = SummonerProfile.SUMMONER_LOOKUP[team_a[role]].player_tag
-                    summ_b = SummonerProfile.SUMMONER_LOOKUP[team_b[role]].player_tag
-
-                    if summ_a in participants:
-                        kda_a = f'`{'/'.join(f'{str(i):<{2}.{2}}' for i in participants[summ_a].kda())}`'
-                    else:
-                        kda_a = '`??/??/??`'
-                    
-                    if summ_b in participants:
-                        kda_b = f'`{'/'.join(f'{str(i):<{2}.{2}}' for i in participants[summ_b].kda())}`'
-                    else:
-                        kda_b = '`??/??/??`'
-
-                    if summ_a and summ_a in participants:
-                        emoji_a = EmojiHandler._champion_emojis[participants[summ_a].champion_name]
-                    else:
-                        emoji_a = ':black_square_button:'
-
-                    
-                    if summ_b and summ_b in participants:
-                        emoji_b = EmojiHandler._champion_emojis[participants[summ_b].champion_name]
-                    else:
-                        emoji_b = ':black_square_button:'
-
-                    col_left.append(kda_a + ' ' + emoji_a)
-                    col_right.append(emoji_b + ' ' + kda_b)
-
-
-                col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
-            
+            col_left = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+            col_right = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+            col_mid = [f'`{team_a[role]:<{10}.{10}}` {self.role_emojis[role]} `{team_b[role]:>{10}.{10}}`' for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
 
             val = '\n'.join([' '.join([left, mid, right]) for left, mid, right in zip(col_left, col_mid, col_right)])
             embed.add_field(name=f'Teams ({lp_diff}LP diff)', value=val, inline=False)
@@ -775,8 +751,8 @@ class MatchData:
         if self.data is None:
             return {}
         participants_data = self.data['info']['participants']
-        summoners = [Summoner(p, self) for p in participants_data]
-        return summoners
+        participants = [Summoner(p, self) for p in  participants_data]
+        return { p.summoner_name : p for p in participants }
 
     async def summary(self):
         """Return a summary dictionary with key match info."""
@@ -799,52 +775,55 @@ class MatchData:
             'teams': teams,
         }
 
-    async def to_embed(self):
+    def __str__(self):
+        participants = list(self.participants().values())  # List[Summoner]
+
+        team_ids = list(set(str(p.team_id) for p in participants))
+
+        team_a, team_b = [[p for p in participants if str(p.team_id) == team_id] for team_id in team_ids]
+
+        pad = max([len(SummonerProfile.SUMMONER_LOOKUP.get(p.summoner_name, p.summoner_name.split('#')[0])) for p in participants])
+        summs_a = [f'`{SummonerProfile.SUMMONER_LOOKUP.get(p.summoner_name, p.summoner_name.split('#')[0]).ljust(pad, ' ')}`' for p in team_a]
+        summs_b = [f'`{SummonerProfile.SUMMONER_LOOKUP.get(p.summoner_name, p.summoner_name.split('#')[0]).rjust(pad, ' ')}`' for p in team_b]
+
+        emojis_a = [EmojiHandler.champion_emoji_by_id(p.champion_id) for p in team_a]
+        emojis_b = [EmojiHandler.champion_emoji_by_id(p.champion_id) for p in team_b]
+
+        kdas_a = [f'`{str(k).rjust(2, ' ')}/{str(d).rjust(2, ' ')}/{str(a).rjust(2, ' ')}`' for k, d, a in [p.kda() for p in team_a]]
+        kdas_b = [f'`{str(k).rjust(2, ' ')}/{str(d).rjust(2, ' ')}/{str(a).rjust(2, ' ')}`' for k, d, a in [p.kda() for p in team_b]]
+
+        emojis = [str(EmojiHandler._emojis[role]) for role in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
+
+        zipped = zip(kdas_a, emojis_a, summs_a, emojis, summs_b, emojis_b, kdas_b)
+        description = '\n'.join([' '.join(z) for z in zipped])
+
+        return description
+
+    def to_embed(self):
         embed_title = "Lane Matchups"
         embed = discord.Embed(
             title=embed_title,
             color=discord.Color.blue()
         )
+        embed.add_field(name='Match Data', value=str(self))
 
-
-        participants = self.participants()  # List[Summoner]
-        [await p.initialize() for p in participants]
-
-
-        pad = max([len(p.summoner_name) for p in participants])+1
-        roles = list((await EmojiHandler.role_emojis()).values())
-        lines = []
-        for player1, player2, role in zip(participants[:5], participants[5:], roles):
-
-            champ1_emoji = await EmojiHandler.champion_emoji_by_id(player1.champion_id)
-            champ2_emoji = await EmojiHandler.champion_emoji_by_id(player2.champion_id)
-
-            kda1 = '/'.join([str(i) for i in player1.kda()])
-            kda2 = '/'.join([str(i) for i in player2.kda()])
-
-            line = f'`{kda1:>{11}.{11}}` {champ1_emoji} `{player1.summoner_name:>{pad}.{pad}}` {role} `{player2.summoner_name:<{pad}.{pad}}` {champ2_emoji} `{kda2:<{11}.{11}}`'
-
-            lines.append(line)
-
-        embed.add_field(name='Matchups', value='\n'.join(lines))
         return embed
 
 
 
 if __name__ == '__main__':
     async def fun():
-        p = SummonerProfile('danleefor3')
-        await p.initialize()
+        await EmojiHandler.initialize()
+
         match_id = 'NA1_5285712809'
         data = MatchData(match_id)
         await data.initialize()
         # print(asyncio.run(p.get_profile_summary()))
         participants = data.participants()
-        [await p.initialize() for p in participants]
         champid = participants[0].champion_id
 
 
-        emoji = await EmojiHandler.champion_emoji_by_id(champid)
+        emoji = EmojiHandler.champion_emoji_by_id(champid)
 
         print(emoji.name)
     
