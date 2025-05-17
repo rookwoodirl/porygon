@@ -380,10 +380,12 @@ class SummonerProfile:
                     matches_dir = os.path.join('data', 'matches')
                     os.makedirs(matches_dir, exist_ok=True)
                     
+                    data = await resp.json()
+                    match_id = str(data['gameId'])
                     match_file = os.path.join(matches_dir, f'{match_id}.json')
                     try:
                         with open(match_file, 'w+') as f:
-                            json.dump(await resp.json(), f, indent=2)
+                            json.dump(data, f, indent=2)
                     except Exception as e:
                         print(f"Error saving match data for {match_id}: {e}")
 
@@ -419,8 +421,11 @@ class MatchMessage:
                 try:
                     if self.message is not None:
                         if self.timeout <= 0:
-                            await self.message.delete()
-                            return
+                            try:
+                                await self.message.delete()
+                                return
+                            except Exception:
+                                return
                         else:
                             await self.update_message()
                 except Exception:
@@ -516,7 +521,7 @@ class MatchMessage:
                 print(f"Error in listen_for_match: {e}")
                 traceback.print_exc()
                 
-            await asyncio.sleep(10)
+            await asyncio.sleep(60)
 
 
 
