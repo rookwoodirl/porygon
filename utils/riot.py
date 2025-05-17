@@ -308,7 +308,7 @@ class SummonerProfile:
             'profile_picture': f':{self._summoner_data.get("profileIconId")}:'
         }
 
-    async def match_history(self, limit: int = 10) -> List[str]:
+    async def match_history(self, limit: int = 5) -> List[str]:
         """Get recent match IDs"""
         if not self._puuid:
             await self.initialize()

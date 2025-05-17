@@ -5,3 +5,13 @@ async def run(ctx):
 
     if not EmojiHandler._initialized:
         await EmojiHandler.initialize()
+
+    player = SummonerProfile(str(ctx.message.author))
+    await player.initialize()
+
+
+    matches = [MatchData(match_id) for match_id in await player.match_history()]
+    [await match.initialize() for match in matches]
+
+    for match in matches:
+        await ctx.channel.send(embed=match.to_embed())
