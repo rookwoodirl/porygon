@@ -355,16 +355,6 @@ class SummonerProfile:
                         print("Failed to fetch match data!")
                         return None
                                         
-                    matches_dir = os.path.join('data', 'matches')
-                    os.makedirs(matches_dir, exist_ok=True)
-                    
-                    match_file = os.path.join(matches_dir, f'{match_id}.json')
-                    try:
-                        with open(match_file, 'w+') as f:
-                            json.dump(await resp.json(), f, indent=2)
-                    except Exception as e:
-                        print(f"Error saving match data for {match_id}: {e}")
-
                     return await resp.json()
         
         else:
@@ -381,19 +371,6 @@ class SummonerProfile:
                         raise Exception(f"Failed to get current match: {response.status}")
                         return None
                     
-                    
-                    matches_dir = os.path.join('data', 'matches')
-                    os.makedirs(matches_dir, exist_ok=True)
-                    
-                    data = await resp.json()
-                    match_id = str(data['gameId'])
-                    match_file = os.path.join(matches_dir, f'{match_id}.json')
-                    try:
-                        with open(match_file, 'w+') as f:
-                            json.dump(data, f, indent=2)
-                    except Exception as e:
-                        print(f"Error saving match data for {match_id}: {e}")
-
                     return await response.json()
 
     async def get_current_match_id(self):
@@ -425,6 +402,9 @@ class MatchMessage:
                 self.timeout -= 5
                 try:
                     if self.message is not None:
+                        if self.match_data is not None and self.match_data.completed:
+                            # don't delete
+                            return
                         if self.timeout <= 0:
                             try:
                                 await self.message.delete()
@@ -433,6 +413,7 @@ class MatchMessage:
                                 return
                         else:
                             await self.update_message()
+                            self.dump_to_file()
                 except Exception:
                     traceback.print_exc()
 
@@ -444,15 +425,40 @@ class MatchMessage:
             await self.message.edit(content=None, embed=self.description())
 
 
+    def dump_to_file(self):
+        if self.match_data and self.match_id:
+            with open(os.path.join('data', 'matches', f'{self.match_id}.json', 'w+')) as f:
+                json.dump(self.match_data, f, indent=2)
+            
+
     async def initialize(self):
-        self.message = await self.command_message.channel.send(embed=self.description())
+        guild = self.command_message.guild
+
+                
+        channel_name = 'lol-match-history'
+        if os.environ.get('ENV', 'prod') == 'dev':
+            channel_name += '-dev'
+
+        history_channel = discord.utils.get(guild.text_channels, name=channel_name)
+        if history_channel is None:
+            history_channel = await guild.create_text_channel(channel_name)
+
+        self.message = await history_channel.send(embed=self.description())
+        # self.message = await self.command_message.channel.send(embed=self.description())
         MatchMessage.MESSAGES[self.message.id] = self
+
         await self.command_message.delete()
         self.role_emojis = await EmojiHandler.role_emojis()
 
         # Add reactions for roles
         for emoji in EmojiHandler.ROLE_EMOJI_NAMES_SORTED:
             await self.message.add_reaction(self.role_emojis[emoji])
+
+
+        # ping the user...
+        ping = await history_channel.send(self.command_message.author.mention)
+        await ping.delete()
+        await self.command_message.channel.send(f'Started a new game in {history_channel.mention}!')
 
         # Set up reaction listeners
         def check(reaction, user):
@@ -679,7 +685,11 @@ class MatchMessage:
         embed.add_field(name='Users', value='\n'.join(lines[::2]), inline=True)
         embed.add_field(name='...', value='\n'.join(lines[1::2]), inline=True)
         embed.add_field(name='...', value='\n'.join(self.queued_players), inline=True)
-        embed.set_footer(text=f'Timeout: {self.timeout // 60}m {self.timeout % 60}s')
+
+        if self.match_data and self.match_data.completed:
+            embed.set_footer(text='Game Complete!')
+        else:
+            embed.set_footer(text=f'Timeout: {self.timeout // 60}m {self.timeout % 60}s')
 
         if self.match_data is not None:
             if self.teams:
