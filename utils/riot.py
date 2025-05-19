@@ -247,6 +247,10 @@ class SummonerProfile:
         
         self._initialized = True
 
+        if self.player_tag:
+            summoner_name, summoner_tag = self.player_tag.split('#')
+            db_conn.store_summoner(self.discord_name, summoner_name, summoner_tag)
+
         print(f'Successfully initialize: {self.discord_name} ({self.player_tag})')
 
     def _calculate_rank(self):
