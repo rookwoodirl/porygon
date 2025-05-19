@@ -276,7 +276,7 @@ class RiotPostgresManager(PostgresManager):
         """Store summoner data in the database."""
         with self.get_cursor() as cur:
             cur.execute("""
-                SELECT store_summoner(%s, %s, %s, %s)
+                SELECT riot.store_summoner(%s, %s, %s, %s)
             """, (discord_name, summoner_name, summoner_tag, puuid))
 
     def store_match_message(self, message_id: str, match_id: str, 
