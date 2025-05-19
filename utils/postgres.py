@@ -1,6 +1,7 @@
 import os
 import psycopg2
-from psycopg2 import sql, OperationalError
+from psycopg2 import OperationalError
+from psycopg2 import sql
 from contextlib import contextmanager
 from typing import Optional, Generator, Dict, List, Any
 import json
@@ -284,7 +285,7 @@ class RiotPostgresManager(PostgresManager):
         """Store the association between a Discord message and a match."""
         with self.get_cursor() as cur:
             cur.execute("""
-                SELECT store_match_message(%s, %s, %s, %s, %s)
+                SELECT riot.store_match_message(%s, %s, %s, %s, %s)
             """, (message_id, match_id, requesting_user_id, requesting_user, guild))
 
     def get_match_message(self, message_id: str) -> Optional[dict]:
