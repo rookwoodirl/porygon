@@ -7,7 +7,7 @@ class SimulatedReaction:
         self.emoji = emoji
 
 
-CHANNEL_NAME = 'lol-queue-pory'
+CHANNEL_NAME = 'lol-match-history'
 if os.environ.get('ENV', 'prod') == 'dev':
     CHANNEL_NAME += '-dev'
 
