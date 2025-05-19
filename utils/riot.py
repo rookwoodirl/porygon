@@ -249,7 +249,7 @@ class SummonerProfile:
 
         if self.player_tag:
             summoner_name, summoner_tag = self.player_tag.split('#')
-            db_conn.store_summoner(self.discord_name, summoner_name, summoner_tag)
+            db_conn.store_summoner(self.discord_name, summoner_name, summoner_tag, self._puuid)
 
         print(f'Successfully initialize: {self.discord_name} ({self.player_tag})')
 
