@@ -7,9 +7,12 @@ import discord
 import json
 import itertools
 import traceback
+from utils.postgres import RiotPostgresManager
 
 load_dotenv()
 bot = None # this is set by main.py
+
+db_conn = RiotPostgresManager()
 
 RIOT_API_KEY = os.getenv('RIOT_API_KEY')
 RIOT_API_BASE = 'https://na1.api.riotgames.com'
@@ -396,6 +399,7 @@ class MatchMessage:
         self.queued_players = []
 
 
+
         async def update():
             while True:
                 await asyncio.sleep(5)
@@ -525,6 +529,14 @@ class MatchMessage:
                 if player_count >= 6:  # If 6 or more of our players are in this match
                     print('Match found!')
                     self.match_data = match_data
+                    # Update the match_id in the database
+                    db_conn.store_match_message(
+                        message_id=str(self.message.id),
+                        match_id=match_id,
+                        requesting_user_id=str(self.command_message.author.id),
+                        requesting_user=str(self.command_message.author),
+                        guild=str(self.command_message.guild.id)
+                    )
                     await self.update_message()
                     return
 
@@ -728,40 +740,39 @@ class MatchData:
         url = f"https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/{self.match_id}"
         headers = {'X-Riot-Token': RIOT_API_KEY}
 
-        # Try to fetch the data immediately first
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status != 200:
-                        raise Exception(f"Failed to fetch match data: {response.status}")
-                    print('Setting initial data!')
-                    self.data = await response.json()
-                    self.completed = self.data['info']['endOfGameResult'].upper() == 'GameComplete'.upper()
-                    print('completed', self.completed)
-        except Exception as e:
-            print(f"Initial fetch failed: {e}")
-            raise
-
         # Start background task to keep updating the data
         async def update_match_data():
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers) as response:
+                        if response.status != 200:
+                            raise Exception(f"Failed to fetch match data: {response.status}")
+                        print(f'Updating data: {self.match_id}...')
+                        self.data = await response.json()
+                        self.completed = self.data['info']['endOfGameResult'].upper() == 'GameComplete'.upper()
+                        # Store match data
+                        db_conn.store_match(
+                            match_id=self.match_id,
+                            match_data=self.data
+                        )
+            except Exception as e:
+                print(e)
+                return
+        
+        async def task():
             for _ in range(100):
                 try:
                     if self.completed:
                         return
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(url, headers=headers) as response:
-                            if response.status != 200:
-                                raise Exception(f"Failed to fetch match data: {response.status}")
-                            print('Setting data!')
-                            self.data = await response.json()
-                            self.completed = self.data['info']['endOfGameResult'].upper() == 'GameComplete'.upper()
-                            print('completed', self.completed)
+                    await update_match_data()
                     await asyncio.sleep(30)
                 except Exception as e:
                     print(e)
-                    return
+                    continue
                 
-        asyncio.create_task(update_match_data())
+
+        await update_match_data()
+        asyncio.create_task(task())
 
     def participants(self):
         """Return a list of Summoner objects for each participant in the match."""

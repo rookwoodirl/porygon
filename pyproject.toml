@@ -8,4 +8,5 @@ dependencies = [
     "discord>=2.3.2",
     "dotenv>=0.9.9",
     "openai>=1.70.0",
+    "psycopg2>=2.9.10",
 ]
