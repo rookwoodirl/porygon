@@ -47,11 +47,6 @@ class Summoner:
     def kda(self):
         return (self.kills, self.deaths, self.assists)
 
-    def kda_ratio(self) -> float:
-        if self.deaths == 0:
-            return self.kills + self.assists
-        return (self.kills + self.assists) / self.deaths
-
 class EmojiHandler:
     _champion_data = None
     _emojis = None
@@ -293,28 +288,6 @@ class SummonerProfile:
             print(f"Error calculating rank for {self.discord_name}: {e}")
             self._rank = DEFAULT_LP
 
-    def get_rank(self) -> int:
-        """Get the player's current LP"""
-        return self._rank
-
-    def get_mastery(self) -> List[Dict]:
-        """Get champion mastery data"""
-        if not self._initialized:
-            raise Exception("SummonerProfile not initialized")
-        return self._mastery_data
-
-    def get_profile_summary(self) -> Dict:
-        """Get comprehensive profile summary"""
-        if not self._initialized:
-            raise Exception("SummonerProfile not initialized")
-            
-        return {
-            'summoner': self._summoner_data,
-            'ranked': self._ranked_data,
-            'top_champions': sorted(self._mastery_data, key=lambda x: x['championPoints'], reverse=True)[:3],
-            'profile_picture': f':{self._summoner_data.get("profileIconId")}:'
-        }
-
     async def match_history(self, limit: int = 5) -> List[str]:
         """Get recent match IDs"""
         if not self._puuid:
@@ -380,11 +353,6 @@ class SummonerProfile:
                     
                     return await response.json()
 
-    async def get_current_match_id(self):
-        """Return the current match ID if the player is in a game, or None otherwise."""
-        match = await self.get_current_match()
-        if match:
-            return match['metadata']['matchId']
 
 class MatchMessage:
     MESSAGES = {}
