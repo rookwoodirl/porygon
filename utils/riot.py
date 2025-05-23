@@ -484,8 +484,14 @@ class MatchMessage:
 
                 # Get match from first player
                 first_player = next(iter(self.players.values()))
-                match_id = await first_player.get_current_match_id()
+                match_data = await first_player.get_current_match()
 
+                if not match_data:
+                    await asyncio.sleep(30)
+                    continue
+
+                # Get match ID from the game data
+                match_id = match_data.get('gameId')
                 if not match_id:
                     await asyncio.sleep(30)
                     continue
