@@ -384,6 +384,7 @@ class MatchMessage:
                         if self.timeout <= 0:
                             try:
                                 await self.message.delete()
+                                self.message = None
                                 return
                             except Exception:
                                 return
