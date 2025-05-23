@@ -288,6 +288,14 @@ class SummonerProfile:
             print(f"Error calculating rank for {self.discord_name}: {e}")
             self._rank = DEFAULT_LP
 
+    def get_rank(self) -> int:
+        """Get the calculated rank value for this summoner.
+        Returns the total LP value calculated from their ranked data.
+        If no ranked data is available, returns the default value (1300 LP)."""
+        if not self._initialized:
+            raise Exception("SummonerProfile must be initialized before getting rank")
+        return self._rank
+
     async def match_history(self, limit: int = 5) -> List[str]:
         """Get recent match IDs"""
         if not self._puuid:
