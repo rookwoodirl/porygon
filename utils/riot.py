@@ -502,11 +502,11 @@ class MatchMessage:
                     print(f"No current match found for {first_player.discord_name}")
                     await asyncio.sleep(30)
                     continue
-                
-                print(match_data.keys())
 
+                print("Match data keys:", match_data.keys())
+                
                 # Get match ID from the game data
-                match_id = str(match_data['metadata']['matchId'])
+                match_id = str(match_data.get('gameId'))
                 if not match_id:
                     print(f"No gameId found in match data: {match_data}")
                     await asyncio.sleep(30)
