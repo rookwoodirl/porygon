@@ -399,7 +399,12 @@ class MatchMessage:
 
     async def update_message(self):
         if self.message is not None:
-            await self.message.edit(content=None, embed=self.description())
+            for _ in range(5):
+                try:
+                    await self.message.edit(content=None, embed=self.description())
+                    return
+                except Exception:
+                    continue
 
 
     def dump_to_file(self):

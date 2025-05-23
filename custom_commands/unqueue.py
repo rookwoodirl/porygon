@@ -18,7 +18,6 @@ async def run(ctx):
     if ctx.message.channel.name != CHANNEL_NAME:
         return
     
-    print(ctx.message.author)
     for match in MatchMessage.MESSAGES.values():
         if match.message.guild == ctx.message.guild and match.message.channel == ctx.message.channel and (ctx.message.author.name in match.players or ctx.message.author.name in match.queued_players):
             roles = match.player_preferences[ctx.message.author.name]
