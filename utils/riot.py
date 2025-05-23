@@ -294,7 +294,9 @@ class SummonerProfile:
         If no ranked data is available, returns the default value (1300 LP)."""
         if not self._initialized:
             raise Exception("SummonerProfile must be initialized before getting rank")
-        return self._rank
+        if self._rank is None:
+            self._calculate_rank()  # Try to calculate rank if it's None
+        return self._rank if self._rank is not None else 1300  # Default to 1300 if still None
 
     async def match_history(self, limit: int = 5) -> List[str]:
         """Get recent match IDs"""
@@ -376,7 +378,7 @@ class MatchMessage:
         self.role_emojis = []
         self.command_message = command_message
         self.message = None
-        self.timeout = 300
+        self.timeout = 500
         self.match_data = None
         self.queued_players = []
 
@@ -497,14 +499,18 @@ class MatchMessage:
                 match_data = await first_player.get_current_match()
 
                 if not match_data:
+                    print(f"No current match found for {first_player.discord_name}")
                     await asyncio.sleep(30)
                     continue
 
                 # Get match ID from the game data
-                match_id = match_data.get('gameId')
+                match_id = str(match_data.get('gameId'))
                 if not match_id:
+                    print(f"No gameId found in match data: {match_data}")
                     await asyncio.sleep(30)
                     continue
+
+                print(f"Found match {match_id} for {first_player.discord_name}")
 
                 # Get match data
                 match_data = MatchData(match_id)
@@ -512,12 +518,18 @@ class MatchMessage:
                 
                 # Get participants
                 participants = match_data.participants()
+                if not participants:
+                    print(f"No participants found in match {match_id}")
+                    await asyncio.sleep(30)
+                    continue
                 
                 # Count how many of our players are in this match
                 player_count = 0
                 for player in self.players.values():
-                    if player.player_tag and player.player_tag in participants:
-                        player_count += 1
+                    if player.player_tag:
+                        player_name = player.player_tag.split('#')[0]
+                        if any(player_name in p.summoner_name for p in participants.values()):
+                            player_count += 1
                 
                 print(f"Found {player_count} players in match {match_id}")
                 if player_count >= 6:  # If 6 or more of our players are in this match
@@ -569,7 +581,7 @@ class MatchMessage:
         if len(self.player_preferences) >= 10:
             print('Choosing roles!')
             self._choose_roles()
-            self.timeout = 60*20 # 20 minutes
+            self.timeout = 60*30 # 20 minutes
             await self.update_message()
         else:
             self.teams = {}
@@ -659,17 +671,21 @@ class MatchMessage:
                         continue
 
                     # Both teams have valid assignments
-                    lp_a = sum(self.players[p].get_rank() for p in team_a_roles.values())
-                    lp_b = sum(self.players[p].get_rank() for p in team_b_roles.values())
-                    diff = abs(lp_a - lp_b)
-                    if diff < best_diff:
-                        best_diff = diff
-                        best_assignment = (team_a_roles.copy(), team_b_roles.copy(), diff)
-                    # Early exit if perfect balance
-                    if diff == 0:
-                        print("Found perfect balance!")
-                        self.teams = best_assignment
-                        return best_assignment
+                    try:
+                        lp_a = sum(self.players[p].get_rank() for p in team_a_roles.values())
+                        lp_b = sum(self.players[p].get_rank() for p in team_b_roles.values())
+                        diff = abs(lp_a - lp_b)
+                        if diff < best_diff:
+                            best_diff = diff
+                            best_assignment = (team_a_roles.copy(), team_b_roles.copy(), diff)
+                        # Early exit if perfect balance
+                        if diff == 0:
+                            print("Found perfect balance!")
+                            self.teams = best_assignment
+                            return best_assignment
+                    except Exception as e:
+                        print(f"Error calculating team balance: {e}")
+                        continue
 
         print('Chose roles! Best assignment:', best_assignment)
         self.teams = best_assignment  # May be None if no valid assignment
