@@ -488,7 +488,7 @@ class MatchMessage:
         asyncio.create_task(self.listen_for_match())
 
     async def listen_for_match(self):
-        for _ in range(100):
+        for _ in range(200):
             try:
                 if len(self.players) < 10:
                     await asyncio.sleep(10)
@@ -502,9 +502,11 @@ class MatchMessage:
                     print(f"No current match found for {first_player.discord_name}")
                     await asyncio.sleep(30)
                     continue
+                
+                print(match_data.keys())
 
                 # Get match ID from the game data
-                match_id = str(match_data.get('gameId'))
+                match_id = str(match_data['metadata']['matchId'])
                 if not match_id:
                     print(f"No gameId found in match data: {match_data}")
                     await asyncio.sleep(30)
