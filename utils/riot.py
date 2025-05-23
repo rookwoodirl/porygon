@@ -305,54 +305,56 @@ class SummonerProfile:
 
     async def get_current_match(self) -> Optional[Dict]:
         """Get current game data if the player is in a game, or most recent match if ENV=dev."""
-        if os.environ.get('ENV', 'prod') == 'dev':
-            if not self._puuid:
-                if not self._initialized:
-                    await self.initialize()
+        try:
+            if os.environ.get('ENV', 'prod') == 'dev':
                 if not self._puuid:
-                    print("No PUUID after initialize!")
-                    return None
-            url = f'https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/{self._puuid}/ids?start=0&count=1'
-            headers = {'X-Riot-Token': RIOT_API_KEY}
-            print("Fetching match IDs from:", url)
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as resp:
-                    print("Response status:", resp.status)
-                    match_ids = await resp.json()
-                    print("Match IDs:", match_ids)
-                    if not match_ids:
-                        print("No recent matches found!")
+                    if not self._initialized:
+                        await self.initialize()
+                    if not self._puuid:
+                        print("No PUUID after initialize!")
                         return None
-                    match_id = match_ids[0]
-            # Get match data
-            url = f'https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/{match_id}'
-            print("Fetching match data from:", url)
-            await asyncio.sleep(5)
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as resp:
-                    print("Match data response status:", resp.status)
-                    if resp.status != 200:
-                        print("Failed to fetch match data!")
-                        return None
-                                        
-                    return await resp.json()
+                url = f'https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/{self._puuid}/ids?start=0&count=1'
+                headers = {'X-Riot-Token': RIOT_API_KEY}
+                print("Fetching match IDs from:", url)
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers) as resp:
+                        print("Response status:", resp.status)
+                        match_ids = await resp.json()
+                        print("Match IDs:", match_ids)
+                        if not match_ids:
+                            print("No recent matches found!")
+                            return None
+                        match_id = match_ids[0]
+                # Get match data
+                url = f'https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/{match_id}'
+                print("Fetching match data from:", url)
+                await asyncio.sleep(5)
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers) as resp:
+                        print("Match data response status:", resp.status)
+                        if resp.status != 200:
+                            print("Failed to fetch match data!")
+                            return None
+                                            
+                        return await resp.json()
         
-        else:
-            # Return current live match data
-            if not self._summoner_id:
-                await self._get_summoner_data()
-            url = f'{RIOT_API_BASE}/lol/spectator/v4/active-games/by-summoner/{self._summoner_id}'
-            headers = {'X-Riot-Token': RIOT_API_KEY}
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 404:
-                        return None  # Player is not in a game
-                    if response.status != 200:
-                        raise Exception(f"Failed to get current match: {response.status}")
-                        return None
-                    
-                    return await response.json()
-
+            else:
+                # Return current live match data
+                if not self._summoner_id:
+                    await self._get_summoner_data()
+                url = f'{RIOT_API_BASE}/lol/spectator/v4/active-games/by-summoner/{self._summoner_id}'
+                headers = {'X-Riot-Token': RIOT_API_KEY}
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers) as response:
+                        if response.status == 404:
+                            return None  # Player is not in a game
+                        if response.status != 200:
+                            raise Exception(f"Failed to get current match: {response.status}")
+                            return None
+                        
+                        return await response.json()
+        except Exception as e:
+            return None
 
 class MatchMessage:
     MESSAGES = {}
