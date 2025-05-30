@@ -543,7 +543,7 @@ class MatchMessage:
                             player_count += 1
                 
                 print(f"Found {player_count} players in match {match_id}")
-                if player_count >= 3:  # If 6 or more of our players are in this match
+                if player_count >= 6:  # If 6 or more of our players are in this match
                     print('Match found!')
                     self.match_data = match_data
                     # Update the match_id in the database
