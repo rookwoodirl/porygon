@@ -38,7 +38,8 @@ async def run(ctx):
         await m.initialize()
 
         if os.environ.get('ENV', 'prod') == 'dev':
-            await simulate_users(m)
+            # await simulate_users(m)
+            pass
 
     except Exception as e:
         print("Error in run:", file=sys.stderr)

@@ -17,6 +17,8 @@ db_conn = RiotPostgresManager()
 RIOT_API_KEY = os.getenv('RIOT_API_KEY')
 RIOT_API_BASE = 'https://na1.api.riotgames.com'
 RIOT_REGION = 'americas'
+RIOT_REGIONAL_ROUTING = 'na1'  # Regional routing value for North America
+RIOT_PLATFORM_ROUTING = 'na1'  # Platform routing value for North America
 DDRAGON_VERSION = '15.10.1'
 
 class Summoner:
@@ -349,21 +351,25 @@ class SummonerProfile:
                         return await resp.json()
         
             else:
-                # Return current live match data
-                if not self._summoner_id:
-                    await self._get_summoner_data()
-                url = f'{RIOT_API_BASE}/lol/spectator/v4/active-games/by-summoner/{self._summoner_id}'
+                # Return current live match data using v5 spectator endpoint
+                if not self._puuid:
+                    await self.initialize()
+                url = f'https://{RIOT_PLATFORM_ROUTING}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/{self._puuid}'
                 headers = {'X-Riot-Token': RIOT_API_KEY}
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, headers=headers) as response:
                         if response.status == 404:
+                            print(f"Player {self.discord_name} is not currently in a game")
                             return None  # Player is not in a game
                         if response.status != 200:
-                            raise Exception(f"Failed to get current match: {response.status}")
-                            return None
+                            error_text = await response.text()
+                            print(f"Failed to get current match: {response.status}")
+                            print(f"Error response: {error_text}")
+                            raise Exception(f"Failed to get current match: {response.status} - {error_text}")
                         
                         return await response.json()
         except Exception as e:
+            print(e)
             return None
 
 class MatchMessage:
@@ -378,7 +384,7 @@ class MatchMessage:
         self.role_emojis = []
         self.command_message = command_message
         self.message = None
-        self.timeout = 500
+        self.timeout = 60*15 # 15 minutes
         self.match_data = None
         self.queued_players = []
 
@@ -491,6 +497,7 @@ class MatchMessage:
         for _ in range(200):
             try:
                 if len(self.players) < 10:
+                    print('Not enough players... sleeping...')
                     await asyncio.sleep(10)
                     continue
 
@@ -502,11 +509,13 @@ class MatchMessage:
                     print(f"No current match found for {first_player.discord_name}")
                     await asyncio.sleep(30)
                     continue
+                else:
+                    print(f"Match found for {first_player.discord_name}!")
 
                 print("Match data keys:", match_data.keys())
                 
                 # Get match ID from the game data
-                match_id = str(match_data.get('gameId'))
+                match_id = str(match_data['metadata']['matchId'])
                 if not match_id:
                     print(f"No gameId found in match data: {match_data}")
                     await asyncio.sleep(30)
@@ -534,7 +543,7 @@ class MatchMessage:
                             player_count += 1
                 
                 print(f"Found {player_count} players in match {match_id}")
-                if player_count >= 6:  # If 6 or more of our players are in this match
+                if player_count >= 3:  # If 6 or more of our players are in this match
                     print('Match found!')
                     self.match_data = match_data
                     # Update the match_id in the database
@@ -560,6 +569,10 @@ class MatchMessage:
         print('React')
         if reaction.emoji.name not in self.role_emojis:
             return
+        
+        real_reaction_emoji = [r.emoji for r in self.message.reactions if r.emoji.name == reaction.emoji.name]
+        if real_reaction_emoji:
+            await self.message.add_reaction(real_reaction_emoji[0])
 
         discord_user = str(user)
         if discord_user not in self.player_preferences:
@@ -583,13 +596,12 @@ class MatchMessage:
         if len(self.player_preferences) >= 10:
             print('Choosing roles!')
             self._choose_roles()
-            self.timeout = 60*30 # 20 minutes
+            self.timeout = 60*45 # 45 minutes
             await self.update_message()
         else:
             self.teams = {}
 
     async def on_unreact(self, reaction, user):
-        print('Unreact')
         discord_user = str(user)
         if discord_user not in self.player_preferences:
             return
@@ -599,7 +611,7 @@ class MatchMessage:
             self.message = await self.message.channel.fetch_message(self.message.id)
             real_reaction_emoji = [r.emoji for r in self.message.reactions if r.emoji.name == reaction.emoji.name]
             if real_reaction_emoji:
-                await self.message.remove_reaction(real_reaction_emoji[0], user)
+                await self.message.remove_reaction(real_reaction_emoji[0])
         except Exception as e:
             print(f"Error handling reaction removal: {e}")
             traceback.print_exc()
@@ -689,7 +701,6 @@ class MatchMessage:
                         print(f"Error calculating team balance: {e}")
                         continue
 
-        print('Chose roles! Best assignment:', best_assignment)
         self.teams = best_assignment  # May be None if no valid assignment
 
 
@@ -725,9 +736,6 @@ class MatchMessage:
         # print("Teams data:", self.teams)
         elif self.teams:
             team_a, team_b, lp_diff = self.teams
-            print("Team A:", team_a)
-            print("Team B:", team_b)
-            print("LP Diff:", lp_diff)
 
             col_left = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
             col_right = [':black_square_button:' for _ in EmojiHandler.ROLE_EMOJI_NAMES_SORTED]
@@ -768,7 +776,7 @@ class MatchData:
                             match_data=self.data
                         )
             except Exception as e:
-                print(e)
+                traceback.print_exc()
                 return
         
         async def task():
@@ -883,5 +891,13 @@ if __name__ == '__main__':
         emoji = EmojiHandler.champion_emoji_by_id(champid)
 
         print(emoji.name)
+
+    async def other_fun():
+        os.environ['ENV'] = 'prod'
+        yoonah = SummonerProfile('Yoonah', 'YoonahKorn#NA1')
+        await yoonah.initialize()
+        print(yoonah._puuid)
+
+        print(await yoonah.get_current_match()) 
     
-    asyncio.run(fun())
+    asyncio.run(other_fun())

@@ -78,12 +78,10 @@ class PostgresManager:
         """Context manager for database connection."""
         conn = None
         try:
-            print(f"Connecting to database: {self.db_url[:20]}...")  # Only show part of URL for security
             if self.db_url.startswith('postgres://') or self.db_url.startswith('postgresql://'):
                 conn = psycopg2.connect(self.db_url)
             else:
                 conn = psycopg2.connect(self.db_url)
-            print("Database connection successful")
             yield conn
         except Exception as e:
             print(f"Database connection error: {e}")
