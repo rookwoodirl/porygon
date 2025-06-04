@@ -224,6 +224,8 @@ class SummonerProfile:
         """Load all summoner data upfront"""
         if self._initialized:
             return
+        
+        self._initialized = True # just do it at the start
 
         # Load from summoners.json if no player_tag provided
         if self.player_tag is None:
@@ -244,11 +246,12 @@ class SummonerProfile:
         if self.spoof:
             self._initialized = True
             return
-            # raise Exception(f"No player tag found for {self.discord_name}")
 
         # Get PUUID
         if self.player_tag is None:
+            self._initialized = True  # Set initialized even if we don't have a player tag
             return
+
         game_name, tag_line = self.player_tag.split('#')
         url = f'https://{RIOT_REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}'
         headers = {'X-Riot-Token': RIOT_API_KEY}
@@ -590,7 +593,7 @@ class MatchMessage:
         if discord_user not in self.players:
             if len(self.players) < 10:
                 profile = SummonerProfile(discord_user)
-                await profile.initialize()
+                await profile.initialize()  # Make sure to await initialization
                 self.players[discord_user] = profile
             elif discord_user not in self.queued_players:
                 self.queued_players.append(discord_user)
@@ -630,7 +633,7 @@ class MatchMessage:
                 if self.queued_players:
                     discord_user = self.queued_players.pop(0)
                     profile = SummonerProfile(discord_user)
-                    await profile.initialize()
+                    await profile.initialize()  # Make sure to await initialization
                     self.players[discord_user] = profile
             if discord_user in self.queued_players:
                 self.queued_players = [player for player in self.queued_players if player != discord_user]
