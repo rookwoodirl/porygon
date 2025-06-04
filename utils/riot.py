@@ -422,7 +422,12 @@ class MatchMessage:
 
     async def initialize(self):
         try:
-            guild_id = int(self.guild_id)
+            # If guild_id is a Message object, get the guild_id from it
+            if hasattr(self.guild_id, 'guild'):
+                guild_id = self.guild_id.guild.id
+            else:
+                guild_id = int(self.guild_id)
+
             guild = bot.get_guild(guild_id)
             if not guild:
                 guild = await bot.fetch_guild(guild_id)

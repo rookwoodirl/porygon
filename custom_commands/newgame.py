@@ -34,7 +34,7 @@ async def run(ctx):
 
     try:
 
-        m = MatchMessage(ctx.message)
+        m = MatchMessage(ctx.guild.id)
         await m.initialize()
 
         if os.environ.get('ENV', 'prod') == 'dev':
