@@ -1,4 +1,4 @@
-from utils.riot import MatchData, EmojiHandler
+from utils.riot import EmojiHandler
 import discord
 import os
 
@@ -17,11 +17,3 @@ async def run(ctx):
         return
 
     match_id = ctx.message.content.replace('!match_summary ', '').strip()
-    match = MatchData(match_id)
-    await match.initialize()  # Make sure match data is loaded if needed
-
-
-
-    embed = match.to_embed()
-    await ctx.send(embed=embed)
-    await ctx.message.delete()
