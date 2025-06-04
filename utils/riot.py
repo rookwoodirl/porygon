@@ -398,18 +398,25 @@ class MatchMessage:
 
     async def simulate_users(self):
         """Simulate 9 users with hardcoded preferences."""
+        # Get random guild members
+        guild = bot.get_guild(int(self.guild_id))
+        if not guild:
+            guild = await bot.fetch_guild(int(self.guild_id))
+        
+        # Get all members, excluding bots
+        members = [m for m in guild.members if not m.bot]
+        if len(members) < 9:
+            print(f"Not enough members in guild (need 9, got {len(members)})")
+            return
+            
+        # Choose 9 random members
+        random_members = random.sample(members, 9)
+        
         # Each tuple: (username, [roles])
         role_emotes = await EmojiHandler.role_emojis()
         user_data = [
-            ("User0",  random.sample(list(role_emotes.values()), 3)),
-            ("User1",  random.sample(list(role_emotes.values()), 3)),
-            ("User2",  random.sample(list(role_emotes.values()), 3)),
-            ("User3",  random.sample(list(role_emotes.values()), 3)),
-            ("User4",  random.sample(list(role_emotes.values()), 3)),
-            ("User5",  random.sample(list(role_emotes.values()), 3)),
-            ("User6",  random.sample(list(role_emotes.values()), 3)),
-            ("User7",  random.sample(list(role_emotes.values()), 3)),
-            ("User8",  random.sample(list(role_emotes.values()), 3)),
+            (str(member), random.sample(list(role_emotes.values()), 3))
+            for member in random_members
         ]
         
         # Directly update the data structures
@@ -422,6 +429,8 @@ class MatchMessage:
                     self.player_preferences[user_name] = [role.name for role in roles]
                 else:
                     await self.on_react(SimulatedReaction(role), user_name)
+        
+        print(f"Simulated {len(user_data)} users with random roles")
 
     async def initialize(self):
         try:
@@ -741,8 +750,8 @@ class MatchMessage:
         def format(participants):
             print(type(participants))
 
-            team_a = [Participant(p) for p in participants if p['teamId'] == TEAM_A_ID]
-            team_b = [Participant(p) for p in participants if p['teamId'] == TEAM_B_ID]
+            team_a = [p for p in participants if p.team_id == TEAM_A_ID]
+            team_b = [p for p in participants if p.team_id == TEAM_B_ID]
 
             lines = []
 
@@ -753,13 +762,12 @@ class MatchMessage:
         
 
         if self.match_data:
-            print('done')
-            data_string = format(self.match_data['info']['participants'])
+            participants = [Participant(p) for p in self.match_data['info']['participants']]
+            data_string = format(participants)
         elif self.spectator_data:
-            print('spec')
-            data_string = format(self.spectator_data['participants'])
+            participants = [Participant(p) for p in self.spectator_data['participants']]
+            data_string = format(participants)
         elif self.teams:
-            print('team')
             data_string = format(self.teams)
         else:
             data_string = ''
