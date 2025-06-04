@@ -90,7 +90,6 @@ class PostgresManager:
             raise e
         finally:
             if conn:
-                print("Closing database connection")
                 conn.close()
 
     @contextmanager
@@ -101,14 +100,12 @@ class PostgresManager:
             try:
                 yield cur
                 conn.commit()
-                print("Database transaction committed")
             except Exception as e:
                 print(f"Database transaction error: {e}")
                 conn.rollback()
                 raise e
             finally:
                 cur.close()
-                print("Database cursor closed")
 
     def test_connection(self) -> bool:
         """Test the database connection."""
