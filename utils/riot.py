@@ -412,7 +412,7 @@ class MatchMessage:
             guild = await bot.fetch_guild(int(self.guild_id))
         
         # Get all members, excluding bots
-        members = [m for m in guild.members if not m.bot]
+        members = [m for m in guild.members if not m.botc]
         if len(members) < 9:
             print(f"Not enough members in guild (need 9, got {len(members)})")
             return
@@ -629,15 +629,14 @@ class MatchMessage:
             elif discord_user not in self.queued_players:
                 self.queued_players.append(discord_user)
 
-        if len(self.player_preferences) >= 10:
+        # Only choose roles if we have exactly 10 players
+        if len(self.players) == 10:
             print('Choosing roles!')
             self._choose_roles()
             self.timeout = 60*45 # 45 minutes
-
         else:
             self.teams = {}
         
-
         await self.message.edit(content=None, embed=self.description())
 
     async def on_unreact(self, reaction, user):
@@ -686,9 +685,9 @@ class MatchMessage:
         Returns: (team_a, team_b, lp_diff)
             where team_a/team_b: dict of role -> Player
         """
-        players = self.players
+        # Take first 10 players
+        players = dict(list(self.players.items())[:10])
         print("Choosing roles for players:", list(players.keys()))
-        assert len(players) == 10, "Must have exactly 10 players"
 
         best_diff = float('inf')
         best_assignment = None
