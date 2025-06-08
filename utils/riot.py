@@ -66,6 +66,8 @@ class Participant:
         else:
             summoner_name = self.summoner_name.split('#')[0]
 
+        summoner_name = summoner_name[:pad] # charlimit for summ name
+
         if reverse:
             summoner_name = f'`{summoner_name.rjust(pad, ' ')}`'
         else:
@@ -210,6 +212,7 @@ class SummonerProfile:
         self._summoner_data = None
         self._ranked_data = None
         self._mastery_data = None
+        print('Created summoner profile:', self.player_tag, self.discord_name)
 
         SummonerProfile.SUMMONER_LOOKUP[self.discord_name] = self
 
@@ -222,25 +225,30 @@ class SummonerProfile:
 
     async def initialize(self):
         """Load all summoner data upfront"""
+        print('Looking for player tag...')
         if self._initialized:
             return
         
         self._initialized = True # just do it at the start
 
-        # Load from summoners.json if no player_tag provided
+        # Load from riot.summoners table if no player_tag provided
         if self.player_tag is None:
             try:
-                with open(os.path.join('data', 'summoners.json')) as f:
-                    summoners = json.load(f)
-                    if self.spoof:
-                        lookup = 'UserX'
-                    else:
-                        lookup = self.discord_name
-                    if lookup in summoners:
-                        summoner_data = summoners[lookup]
-                        self.player_tag = summoner_data.get('summoner_name') + '#' + summoner_data.get('tag')
-                        self._puuid = summoner_data.get('puuid')
-            except (FileNotFoundError, json.JSONDecodeError):
+                # Query the database for the summoner info
+                query = "SELECT summoner_name, summoner_tag, puuid FROM riot.summoners WHERE discord_name = %s"
+                result = db_conn.execute_query(query, (self.discord_name,))
+                
+                if result and len(result) > 0:
+                    summoner_data = {
+                        'summoner_name': result[0][0],
+                        'summoner_tag': result[0][1],
+                        'puuid': result[0][2]
+                    }
+                    self.player_tag = f"{summoner_data['summoner_name']}#{summoner_data['summoner_tag']}"
+                    self._puuid = summoner_data['puuid']
+                    print(f'Found player tag for {self.discord_name}: {self.player_tag}')
+            except Exception as e:
+                print(f"Error loading summoner data from database: {e}")
                 pass
 
         if self.spoof:
@@ -419,15 +427,18 @@ class MatchMessage:
             for member in random_members
         ]
         
-        # Directly update the data structures
+        # First create profiles for all users
+        for user_name, roles in user_data:
+            if len(self.players) < 10:
+                profile = SummonerProfile.SUMMONER_LOOKUP.get(user_name, SummonerProfile(user_name, spoof=True))
+                await profile.initialize()
+                self.players[user_name] = profile
+                self.player_preferences[user_name] = [role.name for role in roles]
+        
+        # Then handle role preferences
         for user_name, roles in user_data:
             for role in roles:
-                if len(self.players) < 10:
-                    profile = SummonerProfile(user_name, spoof=True)
-                    await profile.initialize()
-                    self.players[user_name] = profile
-                    self.player_preferences[user_name] = [role.name for role in roles]
-                else:
+                if user_name not in self.players:
                     await self.on_react(SimulatedReaction(role), user_name)
         
         print(f"Simulated {len(user_data)} users with random roles")
@@ -535,16 +546,25 @@ class MatchMessage:
 
             async def listen_for_match():
                 while True:
-                    if os.environ.get('ENV', 'prod') == 'dev':
-                        print('Dev detected. Skipping live match listen...')
-                        break
+                    # if os.environ.get('ENV', 'prod') == 'dev':
+                    #     print('Dev detected. Skipping live match listen...')
+                    #     break
                     print('Listening for live match...')
                     await asyncio.sleep(30)
-                    if not self.players:
+                    if not self.players or len(self.players) < 10:
                         continue
                     puuids = [player._puuid for player in self.players.values()]
 
-                    spectator_data = await next(iter(self.players.values())).get_current_match()
+                    # Find a player with a linked Riot account
+                    players_with_puuid = [p for p in self.players.values() if p._puuid is not None]
+                    if not players_with_puuid:
+                        print('No players have linked Riot accounts, can\'t listen for a match!')
+                        await asyncio.sleep(30)
+                        continue
+                    
+                    p = players_with_puuid[0]
+                    print(f'Listening to player {p.discord_name}')
+                    spectator_data = await p.get_current_match()
 
                     if not spectator_data:
                         continue
@@ -559,6 +579,7 @@ class MatchMessage:
                     match_id = os.environ.get('MATCH_ID', 'NA1_5298648678')
                 else:
                     match_id = self.spectator_data['gameId']
+
                 while True:
                     print('Listening for match to finish...')
                     url = RIOT_DONE_MATCH_URL.format(matchId=match_id)
@@ -590,6 +611,7 @@ class MatchMessage:
             return
         
         real_reaction_emoji = [r.emoji for r in self.message.reactions if r.emoji.name == reaction.emoji.name]
+        
         if real_reaction_emoji:
             await self.message.add_reaction(real_reaction_emoji[0])
 
@@ -601,7 +623,7 @@ class MatchMessage:
 
         if discord_user not in self.players:
             if len(self.players) < 10:
-                profile = SummonerProfile(discord_user)
+                profile = SummonerProfile.SUMMONER_LOOKUP.get(discord_user, SummonerProfile(discord_user))
                 await profile.initialize()  # Make sure to await initialization
                 self.players[discord_user] = profile
             elif discord_user not in self.queued_players:
@@ -628,7 +650,7 @@ class MatchMessage:
             self.message = await self.message.channel.fetch_message(self.message.id)
             real_reaction_emoji = [r.emoji for r in self.message.reactions if r.emoji.name == reaction.emoji.name]
             if real_reaction_emoji:
-                await self.message.remove_reaction(real_reaction_emoji[0])
+                await self.message.remove_reaction(real_reaction_emoji[0], user)  # Pass the user as the member argument
         except Exception as e:
             print(f"Error handling reaction removal: {e}")
             traceback.print_exc()
@@ -641,8 +663,8 @@ class MatchMessage:
                 del self.players[discord_user]
                 if self.queued_players:
                     discord_user = self.queued_players.pop(0)
-                    profile = SummonerProfile(discord_user)
-                    await profile.initialize()  # Make sure to await initialization
+                    profile = SummonerProfile.SUMMONER_LOOKUP.get(discord_user, SummonerProfile(discord_user))
+                    await profile.initialize()
                     self.players[discord_user] = profile
             if discord_user in self.queued_players:
                 self.queued_players = [player for player in self.queued_players if player != discord_user]
@@ -748,7 +770,6 @@ class MatchMessage:
 
 
         def format(participants):
-            print(type(participants))
 
             team_a = [p for p in participants if p.team_id == TEAM_A_ID]
             team_b = [p for p in participants if p.team_id == TEAM_B_ID]
@@ -760,7 +781,6 @@ class MatchMessage:
             
             return '\n'.join(lines)
         
-
         if self.match_data:
             participants = [Participant(p) for p in self.match_data['info']['participants']]
             data_string = format(participants)

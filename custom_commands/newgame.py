@@ -74,7 +74,7 @@ async def simulate_users(match):
     for user_name, roles in user_data:
         for role in roles:
             if len(match.players) < 10:
-                profile = SummonerProfile(user_name, spoof=True)
+                profile = SummonerProfile.SUMMONER_LOOKUP.get(user_name, SummonerProfile(user_name, spoof=True))
                 await profile.initialize()
                 match.players[user_name] = profile
                 match.player_preferences[user_name] = [role.name for role in roles]
