@@ -61,12 +61,11 @@ class Participant:
         else:
             kda = f'`{str(k).rjust(2, ' ')}/{str(d).rjust(2, ' ')}/{str(a).rjust(2, ' ')}`'
         
-        if self.summoner_name in SummonerProfile.SUMMONER_LOOKUP:
-            summoner_name = SummonerProfile.SUMMONER_LOOKUP.get(self.summoner_name).discord_name
-        else:
+        if self.summoner_name:
             summoner_name = self.summoner_name.split('#')[0]
-
-        summoner_name = summoner_name[:pad] # charlimit for summ name
+            summoner_name = summoner_name[:pad] # charlimit for summ name
+        else:
+            summoner_name = ''
 
         if reverse:
             summoner_name = f'`{summoner_name.rjust(pad, ' ')}`'
@@ -196,8 +195,6 @@ class SummonerProfile:
         mastery points
     Can optionally be associated with a Discord user's profile
     """
-    SUMMONER_LOOKUP = {}
-
     def __init__(self, discord_name: str, player_tag: Optional[str] = None, spoof=False):
         self.player_tag = player_tag  # Player#NA1
         self.discord_name = discord_name
@@ -214,14 +211,30 @@ class SummonerProfile:
         self._mastery_data = None
         print('Created summoner profile:', self.player_tag, self.discord_name)
 
-        SummonerProfile.SUMMONER_LOOKUP[self.discord_name] = self
-
     async def fetch_json(self, url, headers):
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status != 200:
-                    raise Exception(f"Failed to fetch: {url} ({response.status})")
-                return await response.json()
+        """Fetch JSON data from Riot API with proper error handling"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 429:  # Rate limit
+                        retry_after = int(response.headers.get('Retry-After', 60))
+                        print(f"Rate limited, waiting {retry_after} seconds")
+                        await asyncio.sleep(retry_after)
+                        return await self.fetch_json(url, headers)  # Retry
+                    elif response.status == 404:
+                        print(f"Resource not found: {url}")
+                        return None
+                    elif response.status != 200:
+                        error_text = await response.text()
+                        print(f"API Error {response.status}: {error_text}")
+                        return None
+                    return await response.json()
+        except aiohttp.ClientError as e:
+            print(f"Network error: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            return None
 
     async def initialize(self):
         """Load all summoner data upfront"""
@@ -229,12 +242,11 @@ class SummonerProfile:
         if self._initialized:
             return
         
-        self._initialized = True # just do it at the start
+        self._initialized = True
 
         # Load from riot.summoners table if no player_tag provided
         if self.player_tag is None:
             try:
-                # Query the database for the summoner info
                 query = "SELECT summoner_name, summoner_tag, puuid FROM riot.summoners WHERE discord_name = %s"
                 result = db_conn.execute_query(query, (self.discord_name,))
                 
@@ -247,51 +259,73 @@ class SummonerProfile:
                     self.player_tag = f"{summoner_data['summoner_name']}#{summoner_data['summoner_tag']}"
                     self._puuid = summoner_data['puuid']
                     print(f'Found player tag for {self.discord_name}: {self.player_tag}')
+                else:
+                    print(f'No summoner found in database for {self.discord_name}')
+                    if not self.spoof:
+                        return
             except Exception as e:
                 print(f"Error loading summoner data from database: {e}")
-                pass
+                if not self.spoof:
+                    return
 
         if self.spoof:
-            self._initialized = True
+            self._rank = 1300
             return
 
-        # Get PUUID
-        if self.player_tag is None:
-            self._initialized = True  # Set initialized even if we don't have a player tag
-            return
-
-        game_name, tag_line = self.player_tag.split('#')
-        url = f'https://{RIOT_REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}'
-        headers = {'X-Riot-Token': RIOT_API_KEY}
-        data = await self.fetch_json(url, headers)
-        self._puuid = data['puuid']
-
-        # Get summoner data
-        url = f'{RIOT_API_BASE}/lol/summoner/v4/summoners/by-puuid/{self._puuid}'
-        data = await self.fetch_json(url, headers)
-        self._summoner_data = data
-        self._summoner_id = data['id']
-
-        # Get ranked data
-        url = f'{RIOT_API_BASE}/lol/league/v4/entries/by-summoner/{self._summoner_id}'
-        data = await self.fetch_json(url, headers)
-        self._ranked_data = data
-
-        # Get mastery data
-        url = f'{RIOT_API_BASE}/lol/champion-mastery/v4/champion-masteries/by-puuid/{self._puuid}'
-        data = await self.fetch_json(url, headers)
-        self._mastery_data = data
-
-        # Calculate rank
-        self._calculate_rank()
-        
-        self._initialized = True
-
+        # Get PUUID from Riot API if we have a player tag
         if self.player_tag:
-            summoner_name, summoner_tag = self.player_tag.split('#')
-            db_conn.store_summoner(self.discord_name, summoner_name, summoner_tag, self._puuid)
+            try:
+                # Validate player tag format
+                if '#' not in self.player_tag:
+                    print(f"Invalid player tag format for {self.discord_name}: {self.player_tag}")
+                    return
 
-        print(f'Successfully initialize: {self.discord_name} ({self.player_tag})')
+                game_name, tag_line = self.player_tag.split('#')
+                url = f'https://{RIOT_REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}'
+                headers = {'X-Riot-Token': RIOT_API_KEY}
+                data = await self.fetch_json(url, headers)
+                
+                if not data:
+                    print(f"Failed to get PUUID for {self.discord_name}")
+                    return
+                    
+                self._puuid = data['puuid']
+
+                # Get summoner data
+                url = f'{RIOT_API_BASE}/lol/summoner/v4/summoners/by-puuid/{self._puuid}'
+                data = await self.fetch_json(url, headers)
+                if not data:
+                    print(f"Failed to get summoner data for {self.discord_name}")
+                    return
+                    
+                self._summoner_data = data
+                self._summoner_id = data['id']
+
+                # Get ranked data
+                url = f'{RIOT_API_BASE}/lol/league/v4/entries/by-summoner/{self._summoner_id}'
+                data = await self.fetch_json(url, headers)
+                if data:  # Ranked data is optional
+                    self._ranked_data = data
+
+                # Get mastery data
+                url = f'{RIOT_API_BASE}/lol/champion-mastery/v4/champion-masteries/by-puuid/{self._puuid}'
+                data = await self.fetch_json(url, headers)
+                if data:  # Mastery data is optional
+                    self._mastery_data = data
+
+                # Calculate rank
+                self._calculate_rank()
+                
+                # Store in database
+                summoner_name, summoner_tag = self.player_tag.split('#')
+                db_conn.store_summoner(self.discord_name, summoner_name, summoner_tag, self._puuid)
+
+                print(f'Successfully initialized: {self.discord_name} ({self.player_tag})')
+            except Exception as e:
+                print(f"Error fetching data from Riot API for {self.discord_name}: {e}")
+                self._rank = 1300
+        else:
+            self._rank = 1300
 
     def _calculate_rank(self):
         """Calculate total LP from ranked data"""
@@ -359,28 +393,22 @@ class SummonerProfile:
                 return await response.json()
 
     async def get_current_match(self) -> Optional[Dict]:
-        """Get current game data if the player is in a game, or most recent match if ENV=dev."""
+        """Get current game data if the player is in a game"""
         try:
-        
-            # Return current live match data using v5 spectator endpoint
             if not self._puuid:
                 return None
+                
             url = RIOT_SPEC_MATCH_URL.format(puuid=self._puuid)
             headers = {'X-Riot-Token': RIOT_API_KEY}
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 404:
-                        print(f"Player {self.discord_name} is not currently in a game")
-                        return None  # Player is not in a game
-                    if response.status != 200:
-                        error_text = await response.text()
-                        print(f"Failed to get current match: {response.status}")
-                        print(f"Error response: {error_text}")
-                        raise Exception(f"Failed to get current match: {response.status} - {error_text}")
-                    
-                    return await response.json()
+            data = await self.fetch_json(url, headers)
+            
+            if data is None:
+                print(f"Player {self.discord_name} is not currently in a game")
+                return None
+                
+            return data
         except Exception as e:
-            print(e)
+            print(f"Error getting current match for {self.discord_name}: {e}")
             return None
 
 
@@ -412,7 +440,7 @@ class MatchMessage:
             guild = await bot.fetch_guild(int(self.guild_id))
         
         # Get all members, excluding bots
-        members = [m for m in guild.members if not m.botc]
+        members = [m for m in guild.members if not m.bot]
         if len(members) < 9:
             print(f"Not enough members in guild (need 9, got {len(members)})")
             return
@@ -430,7 +458,7 @@ class MatchMessage:
         # First create profiles for all users
         for user_name, roles in user_data:
             if len(self.players) < 10:
-                profile = SummonerProfile.SUMMONER_LOOKUP.get(user_name, SummonerProfile(user_name, spoof=True))
+                profile = SummonerProfile(user_name, spoof=True)
                 await profile.initialize()
                 self.players[user_name] = profile
                 self.player_preferences[user_name] = [role.name for role in roles]
@@ -623,7 +651,7 @@ class MatchMessage:
 
         if discord_user not in self.players:
             if len(self.players) < 10:
-                profile = SummonerProfile.SUMMONER_LOOKUP.get(discord_user, SummonerProfile(discord_user))
+                profile = SummonerProfile(discord_user)
                 await profile.initialize()  # Make sure to await initialization
                 self.players[discord_user] = profile
             elif discord_user not in self.queued_players:
@@ -662,7 +690,7 @@ class MatchMessage:
                 del self.players[discord_user]
                 if self.queued_players:
                     discord_user = self.queued_players.pop(0)
-                    profile = SummonerProfile.SUMMONER_LOOKUP.get(discord_user, SummonerProfile(discord_user))
+                    profile = SummonerProfile(discord_user)
                     await profile.initialize()
                     self.players[discord_user] = profile
             if discord_user in self.queued_players:
