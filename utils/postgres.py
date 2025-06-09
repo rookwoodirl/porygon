@@ -21,6 +21,8 @@ class PostgresManager:
         self.ensure_required_functions(required_functions)
         self.ensure_required_schema(required_schemas, required_tables)
 
+
+
     def ensure_required_functions(self, functions: Dict[str, str]) -> None:
         """Ensures the required functions exist for this object to operate correctly"""
         if not functions:
@@ -146,7 +148,7 @@ class RiotPostgresManager(PostgresManager):
                 'created_at': 'timestamp DEFAULT NOW()' # when the match data was stored
             },
             'summoners': {
-                'discord_name': 'varchar',
+                'discord_name': 'varchar UNIQUE',
                 'summoner_name': 'varchar',
                 'summoner_tag': 'varchar',
                 'puuid': 'varchar PRIMARY KEY',
@@ -247,6 +249,30 @@ class RiotPostgresManager(PostgresManager):
             required_tables=required_tables,
             required_functions=required_functions
         )
+
+
+        try:
+            with open(os.path.join('data', 'summoners.json'), 'r') as f:
+                content = f.read()
+                if not content.strip():  # Check if file is empty
+                    print("summoners.json is empty")
+                    return
+                data = json.loads(content)
+                for row in data.values():
+                    self.execute_query(
+                        """
+                        INSERT INTO riot.summoners (discord_name, summoner_name, summoner_tag, puuid, last_updated)
+                        VALUES (%s, %s, %s, %s, NOW())
+                        ON CONFLICT (discord_name) DO NOTHING
+                        """,
+                        (row["discord_name"], row["summoner_name"], row["tag"], row["puuid"])
+                    )
+        except FileNotFoundError:
+            print("summoners.json not found")
+        except json.JSONDecodeError:
+            print("Error parsing summoners.json")
+        except Exception as e:
+            print(f"Error loading summoners: {e}")
 
     def store_match(self, match_id: str, match_data: dict) -> None:
         """Store match data in the database."""
