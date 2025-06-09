@@ -4,38 +4,19 @@ import os
 import aiohttp
 import json
 from dotenv import load_dotenv
+from utils.postgres import RiotPostgresManager
 
 load_dotenv()
 
 RIOT_API_KEY = os.getenv('RIOT_API_KEY')
 RIOT_API_BASE = 'https://na1.api.riotgames.com'
 CHAMPION_DATA_URL = 'http://ddragon.leagueoflegends.com/cdn/13.24.1/data/en_US/champion.json'
-SUMMONERS_FILE = 'data/summoners.json'
+
+# Initialize database connection
+db_conn = RiotPostgresManager()
 
 # Cache champion data
 champion_data = None
-
-def load_summoners():
-    """Load the summoners mapping from the JSON file."""
-    try:
-        if os.path.exists(SUMMONERS_FILE):
-            with open(SUMMONERS_FILE, 'r') as f:
-                content = f.read().strip()
-                if not content:  # If file is empty
-                    return {}
-                return json.loads(content)
-        return {}
-    except json.JSONDecodeError:
-        print(f"Error reading {SUMMONERS_FILE}, initializing empty file")
-        return {}
-
-def save_summoners(summoners):
-    """Save the summoners mapping to the JSON file."""
-    # Ensure the data directory exists
-    os.makedirs(os.path.dirname(SUMMONERS_FILE), exist_ok=True)
-    
-    with open(SUMMONERS_FILE, 'w') as f:
-        json.dump(summoners, f, indent=2)
 
 async def get_champion_name(champion_id):
     global champion_data
@@ -132,15 +113,12 @@ async def link(ctx, *, summoner_input):
                 await ctx.send(error)
                 return
             
-            # Store the mapping
-            summoners = load_summoners()
-            summoners[str(ctx.author)] = {
-                'discord_name': str(ctx.author),
-                'summoner_name': summoner_name,
-                'tag': tag,
-                'puuid': data['puuid']
-            }
-            save_summoners(summoners)
+            # Store in PostgreSQL database
+            try:
+                db_conn.store_summoner(str(ctx.author), summoner_name, tag, data['puuid'])
+            except Exception as e:
+                await ctx.send(f"Error storing summoner data: {str(e)}")
+                return
             
             # Create embed
             embed = discord.Embed(
