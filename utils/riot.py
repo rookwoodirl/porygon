@@ -26,12 +26,14 @@ DDRAGON_VERSION = '15.10.1'
 RIOT_SPEC_MATCH_URL = f'{RIOT_API_BASE}/lol/spectator/v5/active-games/by-summoner/' + '{puuid}'
 RIOT_DONE_MATCH_URL = f'https://{RIOT_REGION}.api.riotgames.com/lol/match/v5/matches/' + '{matchId}'
 
-TEAM_A_ID = 100
-TEAM_B_ID = 200
+# team ids as defined in data dragon
+TEAM_A_ID = 100 # red side
+TEAM_B_ID = 200 # blue side
 
 class Participant:
     """
     Represents a participant object from a Summoner's Rift game
+    Structure for a Participator in Spectator and Match are the same
     """
     def __init__(self, participant: Dict):
         self.data = participant  # the participant data from riot api
@@ -187,6 +189,7 @@ class EmojiHandler:
         return { str(emoji.name) : emoji for emoji in await bot.fetch_application_emojis() if str(emoji.name) in EmojiHandler.ROLE_EMOJI_NAMES_SORTED }
 
 class SummonerProfile:
+    DEFAULT_RANK = 1300  # Gold 1
     """
     Represents the out-of-game profile of a League of Legends player
     Includes functions that do API calls for:
@@ -205,7 +208,7 @@ class SummonerProfile:
         self._puuid = None
         self._summoner_id = None
         self._account_id = None
-        self._rank = 1300
+        self._rank = self.DEFAULT_RANK
         self._summoner_data = None
         self._ranked_data = None
         self._mastery_data = None
@@ -217,12 +220,15 @@ class SummonerProfile:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as response:
                     if response.status == 429:  # Rate limit
-                        retry_after = int(response.headers.get('Retry-After', 60))
+                        try:
+                            retry_after = int(response.headers.get('Retry-After', 60))
+                        except ValueError:
+                            retry_after = 60
                         print(f"Rate limited, waiting {retry_after} seconds")
                         await asyncio.sleep(retry_after)
                         return await self.fetch_json(url, headers)  # Retry
                     elif response.status == 404:
-                        print(f"Resource not found: {url}")
+                        print(f"No active game for {self.discord_name}")
                         return None
                     elif response.status != 200:
                         error_text = await response.text()
@@ -244,98 +250,103 @@ class SummonerProfile:
         
         self._initialized = True
 
-        # Load from riot.summoners table if no player_tag provided
-        if self.player_tag is None:
-            try:
-                query = "SELECT summoner_name, summoner_tag, puuid FROM riot.summoners WHERE discord_name = %s"
-                result = db_conn.execute_query(query, (self.discord_name,))
-                
-                if result and len(result) > 0:
-                    summoner_data = {
-                        'summoner_name': result[0][0],
-                        'summoner_tag': result[0][1],
-                        'puuid': result[0][2]
-                    }
-                    self.player_tag = f"{summoner_data['summoner_name']}#{summoner_data['summoner_tag']}"
-                    self._puuid = summoner_data['puuid']
-                    print(f'Found player tag for {self.discord_name}: {self.player_tag}')
-                else:
-                    print(f'No summoner found in database for {self.discord_name}')
+        try:
+            # Load from riot.summoners table if no player_tag provided
+            if self.player_tag is None:
+                try:
+                    query = "SELECT summoner_name, summoner_tag, puuid FROM riot.summoners WHERE discord_name = %s"
+                    result = db_conn.execute_query(query, (self.discord_name,))
+                    
+                    if result and len(result) > 0:
+                        summoner_data = {
+                            'summoner_name': result[0][0],
+                            'summoner_tag': result[0][1],
+                            'puuid': result[0][2]
+                        }
+                        self.player_tag = f"{summoner_data['summoner_name']}#{summoner_data['summoner_tag']}"
+                        self._puuid = summoner_data['puuid']
+                        print(f'Found player tag for {self.discord_name}: {self.player_tag}')
+                    else:
+                        print(f'No summoner found in database for {self.discord_name}')
+                        if not self.spoof:
+                            self._rank = self.DEFAULT_RANK
+                            return
+                except Exception as e:
+                    print(f"Error loading summoner data from database: {e}")
                     if not self.spoof:
+                        self._rank = self.DEFAULT_RANK
                         return
-            except Exception as e:
-                print(f"Error loading summoner data from database: {e}")
-                if not self.spoof:
-                    return
 
-        if self.spoof:
-            self._rank = 1300
-            return
+            if self.spoof:
+                self._rank = self.DEFAULT_RANK
+                return
 
-        # Get PUUID from Riot API if we have a player tag
-        if self.player_tag:
-            try:
-                # Validate player tag format
-                if '#' not in self.player_tag:
-                    print(f"Invalid player tag format for {self.discord_name}: {self.player_tag}")
-                    return
+            # Get PUUID from Riot API if we have a player tag
+            if self.player_tag:
+                try:
+                    # Validate player tag format
+                    if '#' not in self.player_tag:
+                        print(f"Invalid player tag format for {self.discord_name}: {self.player_tag}")
+                        self._rank = self.DEFAULT_RANK
+                        return
 
-                game_name, tag_line = self.player_tag.split('#')
-                url = f'https://{RIOT_REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}'
-                headers = {'X-Riot-Token': RIOT_API_KEY}
-                data = await self.fetch_json(url, headers)
-                
-                if not data:
-                    print(f"Failed to get PUUID for {self.discord_name}")
-                    return
+                    game_name, tag_line = self.player_tag.split('#')
+                    url = f'https://{RIOT_REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/{game_name}/{tag_line}'
+                    headers = {'X-Riot-Token': RIOT_API_KEY}
+                    data = await self.fetch_json(url, headers)
                     
-                self._puuid = data['puuid']
+                    if not data:
+                        print(f"Failed to get PUUID for {self.discord_name}")
+                        self._rank = self.DEFAULT_RANK
+                        return
+                        
+                    self._puuid = data['puuid']
 
-                # Get summoner data
-                url = f'{RIOT_API_BASE}/lol/summoner/v4/summoners/by-puuid/{self._puuid}'
-                data = await self.fetch_json(url, headers)
-                if not data:
-                    print(f"Failed to get summoner data for {self.discord_name}")
-                    return
+                    # Get summoner data
+                    url = f'{RIOT_API_BASE}/lol/summoner/v4/summoners/by-puuid/{self._puuid}'
+                    data = await self.fetch_json(url, headers)
+                    if not data:
+                        print(f"Failed to get summoner data for {self.discord_name}")
+                        self._rank = self.DEFAULT_RANK
+                        return
+                        
+                    self._summoner_data = data
+                    self._summoner_id = data['id']
+
+                    # Get ranked data
+                    url = f'{RIOT_API_BASE}/lol/league/v4/entries/by-summoner/{self._summoner_id}'
+                    data = await self.fetch_json(url, headers)
+                    if data:  # Ranked data is optional
+                        self._ranked_data = data
+
+                    # Get mastery data
+                    url = f'{RIOT_API_BASE}/lol/champion-mastery/v4/champion-masteries/by-puuid/{self._puuid}'
+                    data = await self.fetch_json(url, headers)
+                    if data:  # Mastery data is optional
+                        self._mastery_data = data
+
+                    # Calculate rank
+                    self._calculate_rank()
                     
-                self._summoner_data = data
-                self._summoner_id = data['id']
+                    # Store in database
+                    summoner_name, summoner_tag = self.player_tag.split('#')
+                    db_conn.store_summoner(self.discord_name, summoner_name, summoner_tag, self._puuid)
 
-                # Get ranked data
-                url = f'{RIOT_API_BASE}/lol/league/v4/entries/by-summoner/{self._summoner_id}'
-                data = await self.fetch_json(url, headers)
-                if data:  # Ranked data is optional
-                    self._ranked_data = data
-
-                # Get mastery data
-                url = f'{RIOT_API_BASE}/lol/champion-mastery/v4/champion-masteries/by-puuid/{self._puuid}'
-                data = await self.fetch_json(url, headers)
-                if data:  # Mastery data is optional
-                    self._mastery_data = data
-
-                # Calculate rank
-                self._calculate_rank()
-                
-                # Store in database
-                summoner_name, summoner_tag = self.player_tag.split('#')
-                db_conn.store_summoner(self.discord_name, summoner_name, summoner_tag, self._puuid)
-
-                print(f'Successfully initialized: {self.discord_name} ({self.player_tag})')
-            except Exception as e:
-                print(f"Error fetching data from Riot API for {self.discord_name}: {e}")
-                self._rank = 1300
-        else:
-            self._rank = 1300
+                    print(f'Successfully initialized: {self.discord_name} ({self.player_tag})')
+                except Exception as e:
+                    print(f"Error fetching data from Riot API for {self.discord_name}: {e}")
+                    self._rank = self.DEFAULT_RANK
+        except Exception as e:
+            print(f"Critical error in initialize: {e}")
+            self._rank = self.DEFAULT_RANK
 
     def _calculate_rank(self):
         """Calculate total LP from ranked data"""
-        DEFAULT_LP = 1300  # Gold 1
-
         try:
             # Find solo queue data
             solo_queue = next((q for q in self._ranked_data if q['queueType'] == 'RANKED_SOLO_5x5'), None)
             if not solo_queue:
-                self._rank = DEFAULT_LP
+                self._rank = self.DEFAULT_RANK
                 return
 
             # Calculate total LP
@@ -360,12 +371,17 @@ class SummonerProfile:
 
             tier_lp = TIER_MAP.get(solo_queue['tier'], 0)
             rank_lp = RANK_MAP.get(solo_queue['rank'], 0)
-            league_points = solo_queue['leaguePoints']
+            
+            try:
+                league_points = int(solo_queue['leaguePoints'])
+            except (ValueError, TypeError):
+                print(f"Invalid league points for {self.discord_name}")
+                league_points = 0
 
             self._rank = tier_lp + rank_lp + league_points
         except Exception as e:
             print(f"Error calculating rank for {self.discord_name}: {e}")
-            self._rank = DEFAULT_LP
+            self._rank = self.DEFAULT_RANK
 
     def get_rank(self) -> int:
         """Get the calculated rank value for this summoner.
@@ -375,7 +391,7 @@ class SummonerProfile:
             raise Exception("SummonerProfile must be initialized before getting rank")
         if self._rank is None:
             self._calculate_rank()  # Try to calculate rank if it's None
-        return self._rank if self._rank is not None else 1300  # Default to 1300 if still None
+        return self._rank if self._rank is not None else self.DEFAULT_RANK
 
     async def match_history(self, limit: int = 5) -> List[str]:
         """Get recent match IDs"""
@@ -559,14 +575,20 @@ class MatchMessage:
                     traceback.print_exc()
 
             async def update_message():
-                UPDATE_RATE = 15 # update every 5 seconds
+                UPDATE_RATE = 30 # update every 30 seconds
                 while True:
                     await asyncio.sleep(UPDATE_RATE) # update every 5 seconds
                     self.timeout -= UPDATE_RATE
                     if self.message is None:
                         self.timeout = 0
                         return
-                    
+                    if self.timeout <= 0:
+                        try:
+                            await self.message.delete()
+                        finally:
+                            self.message = None
+                            return
+
                     try:
                         await self.message.edit(content=None, embed=self.description())
                     except Exception:
@@ -607,6 +629,8 @@ class MatchMessage:
                     match_id = os.environ.get('MATCH_ID', 'NA1_5298648678')
                 else:
                     match_id = self.spectator_data['gameId']
+                
+                self.timeout = 60*60 # wait 1 hour at most for match to finish
 
                 while True:
                     print('Listening for match to finish...')
@@ -665,7 +689,7 @@ class MatchMessage:
         else:
             self.teams = {}
         
-        await self.message.edit(content=None, embed=self.description())
+        await self.update_message()
 
     async def on_unreact(self, reaction, user):
         discord_user = str(user)
@@ -704,7 +728,7 @@ class MatchMessage:
         else:
             self.teams = {}
 
-        await self.message.edit(content=None, embed=self.description())
+        await self.update_message()
 
     def _choose_roles(self, roles=EmojiHandler.ROLE_EMOJI_NAMES_SORTED):
         """
@@ -719,6 +743,7 @@ class MatchMessage:
 
         best_diff = float('inf')
         best_assignment = None
+        good_assignments = []
 
         # All possible ways to split 10 players into two teams of 5
         for team_a_players in itertools.combinations(players, 5):
@@ -754,15 +779,20 @@ class MatchMessage:
                         if diff < best_diff:
                             best_diff = diff
                             best_assignment = (team_a_roles.copy(), team_b_roles.copy(), diff)
-                        # Early exit if perfect balance
-                        if diff == 0:
-                            print("Found perfect balance!")
-                            self.teams = best_assignment
-                            return best_assignment
+                        # Add to good assignments if within threshold
+                        if diff == 0 or diff <= 200:
+                            good_assignments.append((team_a_roles.copy(), team_b_roles.copy(), diff))
+
                     except Exception as e:
                         print(f"Error calculating team balance: {e}")
                         continue
 
+        # If we have any good assignments, use one of those
+        if good_assignments:
+            print(f"Found {len(good_assignments)} good assignments, choosing randomly")
+            best_assignment = random.choice(good_assignments)
+        
+        # Otherwise use the best assignment we found
         self.teams = []
         team_a, team_b, lp_diff = best_assignment
 
@@ -778,6 +808,31 @@ class MatchMessage:
             }))
 
         print('Chose roles!')
+        return best_assignment
+
+    async def update_message(self):
+        """Update the match message with current state"""
+        try:
+            if self.message is None:
+                return
+                
+            await self.message.edit(content=None, embed=self.description())
+        except discord.NotFound:
+            print("Message was deleted, stopping updates")
+            self.message = None
+        except discord.Forbidden:
+            print("Missing permissions to update message")
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limit
+                retry_after = e.retry_after
+                print(f"Rate limited, waiting {retry_after} seconds")
+                await asyncio.sleep(retry_after)
+                await self.update_message()  # Retry
+            else:
+                print(f"HTTP error updating message: {e}")
+        except Exception as e:
+            print(f"Error updating message: {e}")
+            traceback.print_exc()
 
     def description(self) -> discord.Embed:
         embed = discord.Embed(
