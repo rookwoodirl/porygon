@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 import logging
+import re
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -73,6 +74,42 @@ def _strip_name_prefixes(text: str) -> str:
         if lowered.startswith(prefix):
             return lowered[len(prefix):].lstrip()
     return text
+
+
+def _is_directed_to_bot(message: discord.Message) -> bool:
+    """Heuristic gate to decide if we should respond.
+    - True for DMs
+    - True if the bot is mentioned
+    - True if content references 'pory' or 'porygon' as a word/prefix
+    """
+    try:
+        # Direct messages
+        if isinstance(message.channel, discord.DMChannel):
+            return True
+    except Exception:
+        pass
+
+    try:
+        # Mentions
+        if bot.user and any(getattr(u, 'id', None) == bot.user.id for u in getattr(message, 'mentions', []) or []):
+            return True
+    except Exception:
+        pass
+
+    text = (message.content or "").strip()
+    if not text:
+        return False
+    lower = text.lower()
+
+    # Name cues (word boundary or common punctuation right after name)
+    if re.search(r"\b(pory|porygon)\b", lower):
+        return True
+    if lower.startswith("pory ") or lower.startswith("pory:") or lower.startswith("pory,"):
+        return True
+    if lower.startswith("porygon ") or lower.startswith("porygon:") or lower.startswith("porygon,"):
+        return True
+
+    return False
 
 
 def _extract_tool_names(tool_schemas: list[dict] | None) -> list[str]:
@@ -372,6 +409,11 @@ async def on_message(message: discord.Message):
     # If message starts with the command prefix, handle as a command only
     content_text = message.content or ""
     if content_text.startswith(PREFIX):
+        await bot.process_commands(message)
+        return
+
+    # If it does not look directed at the bot, skip responding
+    if not _is_directed_to_bot(message):
         await bot.process_commands(message)
         return
 
