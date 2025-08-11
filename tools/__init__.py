@@ -4,63 +4,79 @@ import importlib
 import pkgutil
 from pathlib import Path
 from typing import Callable, Dict, List
+import inspect
 
 
-class ToolSpec:
-    def __init__(self, schema: dict, execute: Callable[[dict], str]):
-        self.schema = schema
-        self.execute = execute
+# Registry of tool functions. Keys are tool names, values are callables.
+TOOL_FUNCTIONS: Dict[str, Callable[..., str]] = {}
 
 
-def _discover_tools() -> Dict[str, ToolSpec]:
-    registry: Dict[str, ToolSpec] = {}
+def tool(name: str) -> Callable[[Callable[..., str]], Callable[..., str]]:
+    """Decorator to register a function as a tool available to contexts.
 
-    package_name = __name__  # e.g., "tools"
-    package_path_list = list(getattr(__import__(package_name), "__path__", []))
+    The function's docstring will be used by contexts to build schemas dynamically.
+    """
 
-    # Fallback to filesystem scan in case __path__ is not set (edge cases)
-    if not package_path_list:
-        package_path_list = [str(Path(__file__).parent)]
+    def _decorator(fn: Callable[..., str]) -> Callable[..., str]:
+        TOOL_FUNCTIONS[name] = fn
+        return fn
 
-    # Iterate immediate modules in this package
-    for finder, mod_name, is_pkg in pkgutil.iter_modules(package_path_list):
-        if is_pkg:
+    return _decorator
+
+
+def _import_tool_modules() -> None:
+    package_name = __name__
+    package_path_list = list(getattr(__import__(package_name), "__path__", [])) or [str(Path(__file__).parent)]
+    for _, mod_name, is_pkg in pkgutil.iter_modules(package_path_list):
+        if is_pkg or mod_name.startswith("_") or mod_name == "__init__":
             continue
-        if mod_name.startswith("_") or mod_name == "__init__":
-            continue
-
-        full_name = f"{package_name}.{mod_name}"
         try:
-            module = importlib.import_module(full_name)
+            importlib.import_module(f"{package_name}.{mod_name}")
         except Exception:
+            # Ignore faulty modules; tools from others still register
             continue
 
-        tool_name = getattr(module, "TOOL_NAME", None)
-        schema = getattr(module, "schema", None)
-        execute = getattr(module, "execute", None)
 
-        if not isinstance(tool_name, str) or not isinstance(schema, dict) or not callable(execute):
+# Import tool modules at import time so @tool decorators run
+_import_tool_modules()
+
+
+def get_tool_functions(names: List[str] | None = None) -> Dict[str, Callable[..., str]]:
+    if names is None:
+        return dict(TOOL_FUNCTIONS)
+    return {n: TOOL_FUNCTIONS[n] for n in names if n in TOOL_FUNCTIONS}
+
+
+def _function_to_schema(name: str, fn: Callable[..., str]) -> dict:
+    doc = inspect.getdoc(fn) or "Perform an action"
+    sig = inspect.signature(fn)
+    props: Dict[str, dict] = {}
+    required: List[str] = []
+    for param_name, param in sig.parameters.items():
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
             continue
-
-        registry[tool_name] = ToolSpec(schema=schema, execute=execute)
-
-    return registry
-
-
-# Registry maps tool function name -> ToolSpec (built dynamically)
-TOOL_REGISTRY: Dict[str, ToolSpec] = _discover_tools()
-
-
-def get_tool_schemas(tool_names: List[str] | None = None) -> List[dict]:
-    if tool_names is None:
-        return [spec.schema for spec in TOOL_REGISTRY.values()]
-    schemas: List[dict] = []
-    for name in tool_names:
-        spec = TOOL_REGISTRY.get(name)
-        if spec:
-            schemas.append(spec.schema)
-    return schemas
+        props[param_name] = {"type": "string", "description": f"Argument {param_name}"}
+        if param.default is inspect._empty:
+            required.append(param_name)
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": doc,
+            "parameters": {
+                "type": "object",
+                "properties": props,
+                "required": required,
+                "additionalProperties": False,
+            },
+        },
+    }
 
 
-__all__ = ["TOOL_REGISTRY", "get_tool_schemas", "ToolSpec"]
+def get_tool_schemas(tool_names: List[str]) -> List[dict]:
+    funcs = get_tool_functions(tool_names)
+    return [_function_to_schema(name, fn) for name, fn in funcs.items()]
+
+
+__all__ = ["tool", "get_tool_functions", "get_tool_schemas", "TOOL_FUNCTIONS"]
 

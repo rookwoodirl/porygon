@@ -11,7 +11,10 @@ from context import (
     get_context_options,
     get_default_context,
 )
-from tools import TOOL_REGISTRY
+from tools import get_tool_functions
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from db.models import Billing
 
 # Load environment variables from .env file
 load_dotenv()
@@ -45,6 +48,89 @@ intents.message_content = True  # Ensure message content is enabled for prefix c
 # Create bot instance
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
+# ---------- billing helpers ----------
+_BillingSessionFactory: sessionmaker | None = None
+
+
+def _get_billing_session_factory() -> sessionmaker | None:
+    global _BillingSessionFactory
+    if _BillingSessionFactory is not None:
+        return _BillingSessionFactory
+    dsn = os.getenv('DATABASE_URL')
+    if not dsn:
+        return None
+    try:
+        engine = create_engine(dsn, future=True)
+        _BillingSessionFactory = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
+    except Exception:
+        _BillingSessionFactory = None
+    return _BillingSessionFactory
+def _strip_name_prefixes(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    lowered = text.lstrip()
+    for prefix in ("Porygon:", "Porygon2:", "Porygon :", "Porygon2 :"):
+        if lowered.startswith(prefix):
+            return lowered[len(prefix):].lstrip()
+    return text
+
+
+def _extract_tool_names(tool_schemas: list[dict] | None) -> list[str]:
+    names: list[str] = []
+    if not tool_schemas:
+        return names
+    for t in tool_schemas:
+        try:
+            fn = t.get('function', {})
+            if isinstance(fn, dict) and isinstance(fn.get('name'), str):
+                names.append(fn['name'])
+        except Exception:
+            continue
+    return names
+
+
+def _record_billing(
+    context_name: str,
+    model: str,
+    messages: list[dict],
+    tools: list[dict] | None,
+    usage_obj: object,
+    discord_user_id: str | None = None,
+    discord_username: str | None = None,
+) -> None:
+    sf = _get_billing_session_factory()
+    if not sf:
+        return
+    tokens_in = 0
+    tokens_out = 0
+    try:
+        usage = getattr(usage_obj, 'usage', usage_obj)
+        tokens_in = int(getattr(usage, 'prompt_tokens', 0) or 0)
+        tokens_out = int(getattr(usage, 'completion_tokens', 0) or 0)
+    except Exception:
+        try:
+            tokens_in = int(usage_obj.get('prompt_tokens', 0))  # type: ignore[attr-defined]
+            tokens_out = int(usage_obj.get('completion_tokens', 0))  # type: ignore[attr-defined]
+        except Exception:
+            tokens_in = tokens_in or 0
+            tokens_out = tokens_out or 0
+    try:
+        with sf() as s:
+            s.add(Billing(
+                context_name=context_name,
+                model=model,
+                prompt=json.dumps(messages, ensure_ascii=False),
+                tools=_extract_tool_names(tools),
+                tokens_input=tokens_in,
+                tokens_output=tokens_out,
+                discord_user_id=discord_user_id,
+                discord_username=discord_username,
+            ))
+            s.commit()
+    except Exception:
+        # never break user flow on billing failures
+        pass
+
 @bot.event
 async def on_ready():
     """Event triggered when the bot is ready and connected to Discord."""
@@ -74,7 +160,11 @@ async def hello(ctx):
     await ctx.send(f'Hello {ctx.author.mention}! I am Porygon, your Discord bot!')
 
 
-def _route_context_name(user_message: str) -> str | None:
+def _route_context_name(
+    user_message: str,
+    discord_user_id: str | None = None,
+    discord_username: str | None = None,
+) -> str | None:
     """Use a small model to pick a context name from the registry. Returns None for default."""
     options = get_context_options()
     if not options or not openai_client:
@@ -93,16 +183,31 @@ def _route_context_name(user_message: str) -> str | None:
     )
 
     try:
+        router_messages = [
+            {"role": "system", "content": sys_msg},
+            {"role": "user", "content": user_msg},
+        ]
         resp = openai_client.chat.completions.create(
             model=ROUTER_MODEL,
-            messages=[
-                {"role": "system", "content": sys_msg},
-                {"role": "user", "content": user_msg},
-            ],
+            messages=router_messages,
             temperature=0.0,
             max_tokens=8,
         )
+        # Record router billing as its own entry (orchestrator)
+        try:
+            _record_billing(
+                context_name="orchestrator",
+                model=ROUTER_MODEL,
+                messages=router_messages,
+                tools=None,
+                usage_obj=getattr(resp, 'usage', {}),
+                discord_user_id=discord_user_id,
+                discord_username=discord_username,
+            )
+        except Exception:
+            pass
         name = (resp.choices[0].message.content or "").strip()
+        print('Chosen context: ', name)
         if name.lower() == 'default' or not name:
             return None
         # ensure it exists
@@ -112,33 +217,43 @@ def _route_context_name(user_message: str) -> str | None:
         return None
 
 
-async def _generate_openai_reply(context_lines: list[str], user_message: str, channel_name: str | None) -> str:
+async def _generate_openai_reply(
+    chat_history: list[dict],
+    user_message: str,
+    channel_name: str | None,
+    discord_user_id: str | None,
+    discord_username: str | None,
+) -> str:
     """Call OpenAI to generate a reply using provided context."""
     if not openai_client:
         return "OpenAI API key is not configured. Please set OPENAI_API_KEY."
 
     # Route to a context based on registry docs using a small model
-    selected_name = await asyncio.to_thread(_route_context_name, user_message)
+    selected_name = await asyncio.to_thread(
+        _route_context_name,
+        user_message,
+        discord_user_id,
+        discord_username,
+    )
     ctx = get_context_by_name(selected_name) if selected_name else get_default_context()
     system_prompt = ctx.prompt
 
-    # Build a compact context block
-    context_block = "\n".join(f"- {line}" for line in context_lines)
-
-    user_prompt = (
-        "Recent context (last 10 messages, first 200 chars each):\n"
-        f"{context_block}\n\n"
-        "User just said:\n"
-        f"{user_message}\n\n"
-        "Respond appropriately."
-    )
+    # Build chat messages: prior history as separate turns, then the current user message
+    def build_messages():
+        messages = [
+            {"role": "system", "content": system_prompt},
+        ]
+        # Append prior turns (already trimmed)
+        for m in chat_history:
+            if m.get("role") in {"user", "assistant"} and isinstance(m.get("content"), str):
+                messages.append({"role": m["role"], "content": m["content"]})
+        # Current user turn
+        messages.append({"role": "user", "content": user_message})
+        return messages
 
     def _call_openai():
         model_to_use = getattr(ctx, "model", 'gpt-4.1')
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
+        messages = build_messages()
 
         kwargs = {
             "model": model_to_use,
@@ -152,6 +267,18 @@ async def _generate_openai_reply(context_lines: list[str], user_message: str, ch
 
         # First call — model may request tool calls
         first = openai_client.chat.completions.create(**kwargs)
+        try:
+            _record_billing(
+                context_name=selected_name or "default",
+                model=model_to_use,
+                messages=messages,
+                tools=ctx.tools if hasattr(ctx, 'tools') else None,
+                usage_obj=getattr(first, 'usage', {}),
+                discord_user_id=discord_user_id,
+                discord_username=discord_username,
+            )
+        except Exception:
+            pass
         if not first.choices:
             return ""
         msg = first.choices[0].message
@@ -159,7 +286,7 @@ async def _generate_openai_reply(context_lines: list[str], user_message: str, ch
         # If no tool calls, return content
         tool_calls = getattr(msg, "tool_calls", None)
         if not tool_calls:
-            return (msg.content or "").strip()
+            return _strip_name_prefixes((msg.content or "").strip())
 
         # Add assistant message that includes tool_calls
         messages.append(
@@ -181,6 +308,7 @@ async def _generate_openai_reply(context_lines: list[str], user_message: str, ch
         )
 
         # Execute tools locally and append tool results
+        tool_funcs = get_tool_functions()
         for tc in tool_calls:
             tool_name = tc.function.name
             raw_args = tc.function.arguments or "{}"
@@ -190,10 +318,10 @@ async def _generate_openai_reply(context_lines: list[str], user_message: str, ch
                 args = {}
 
             result_text = f"Tool '{tool_name}' not available."
-            spec = TOOL_REGISTRY.get(tool_name)
-            if spec:
+            fn = tool_funcs.get(tool_name)
+            if fn:
                 try:
-                    result_text = spec.execute(args)
+                    result_text = fn(**args)
                 except Exception as e:
                     result_text = f"Error executing tool '{tool_name}': {e}"
 
@@ -213,7 +341,19 @@ async def _generate_openai_reply(context_lines: list[str], user_message: str, ch
             temperature=0.7,
             max_tokens=400,
         )
-        return (second.choices[0].message.content or "").strip() if second.choices else ""
+        try:
+            _record_billing(
+                context_name=selected_name or "default",
+                model=model_to_use,
+                messages=messages,
+                tools=ctx.tools if hasattr(ctx, 'tools') else None,
+                usage_obj=getattr(second, 'usage', {}),
+                discord_user_id=discord_user_id,
+                discord_username=discord_username,
+            )
+        except Exception:
+            pass
+        return _strip_name_prefixes((second.choices[0].message.content or "").strip()) if second.choices else ""
 
     try:
         return await asyncio.to_thread(_call_openai)
@@ -236,23 +376,24 @@ async def on_message(message: discord.Message):
         return
 
     # Collect previous 9 messages (first 200 chars) to pair with current = total 10
-    context_lines: list[str] = []
+    # Build structured chat history with roles
+    chat_history: list[dict] = []
     try:
-        async for msg in message.channel.history(limit=9):
+        async for msg in message.channel.history(limit=9, oldest_first=False):
             if msg.id == message.id:
                 continue
             author_name = getattr(msg.author, 'display_name', None) or msg.author.name
             content = (msg.content or "").replace("\n", " ")[:200]
-            if content:
-                context_lines.append(f"{author_name}: {content}")
+            if not content:
+                continue
+            role = "assistant" if msg.author == bot.user else "user"
+            # Include author tag for disambiguation
+            chat_history.insert(0, {"role": role, "content": f"{author_name}: {content}"})
     except Exception as e:  # pragma: no cover
         logger.debug(f"Could not fetch history for context: {e}")
 
-    # Prepend the latest message content to ensure it's included
-    latest_author = getattr(message.author, 'display_name', None) or message.author.name
-    latest_content = (message.content or "").replace("\n", " ")[:200]
-    if latest_content:
-        context_lines.insert(0, f"{latest_author}: {latest_content}")
+    # Trim to last 9 prior messages
+    chat_history = chat_history[-9:]
 
     # Channel name best-effort (DMs may not have a name)
     try:
@@ -261,7 +402,23 @@ async def on_message(message: discord.Message):
         channel_name = None
 
     # Generate and send reply
-    reply_text = await _generate_openai_reply(context_lines, message.content or "", channel_name)
+    # Prepare user identifiers for billing
+    try:
+        _discord_user_id = str(message.author.id)
+    except Exception:
+        _discord_user_id = None
+    try:
+        _discord_username = getattr(message.author, 'display_name', None) or message.author.name
+    except Exception:
+        _discord_username = None
+
+    reply_text = await _generate_openai_reply(
+        chat_history,
+        message.content or "",
+        channel_name,
+        _discord_user_id,
+        _discord_username,
+    )
     if reply_text:
         try:
             await message.reply(reply_text)
