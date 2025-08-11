@@ -21,8 +21,15 @@ class Context:
     doc: Short description used by the router model to decide if this context fits a request.
     """
 
-    def __init__(self, prompt: str = base_prompt, tools: list | None = None, model: str = 'gpt-4.1', doc: str = ''):
+    def __init__(
+            self, 
+            prompt: str = base_prompt, 
+            tools: list | None = None, 
+            model: str = 'gpt-5-mini', 
+            max_completion_tokens=2000,
+            doc: str = ''):
         self.prompt = prompt
+        self.max_completion_tokens = max_completion_tokens
         tools = tools or []
         # If tools are provided as names, map to OpenAI tool schemas
         if tools and all(isinstance(t, str) for t in tools):
@@ -36,14 +43,15 @@ class Context:
 
 
 
-def get_default_context() -> Context:
-    # Default when registry has no match or is empty
-    return Context(prompt=base_prompt, tools=['calculator', 'gif', 'perplexity'], model='gpt-4.1', doc="Fallback general context.")
-
 
 # Registry of available contexts (name -> Context). Populate as needed.
 context_registry: dict[str, Context] = {
-    'default' : get_default_context(),
+    'default' : Context(
+        prompt=base_prompt, 
+        tools=['calculator', 'gif', 'perplexity'], 
+        model='gpt-5-mini', 
+        doc="Fallback general context."
+    ),
     'riot': Context(
         prompt=(
             base_prompt + "\n" +
@@ -51,10 +59,16 @@ context_registry: dict[str, Context] = {
             "Use tools for fetching matches and summoners"
         ),
         tools=['riot_lol_match', 'riot_tft_match', 'riot_summoner_by_puuid', 'riot_account_by_riot_id'],
-        model='gpt-4o-mini',
+        model='gpt-5-mini',
         doc="Riot Games context: LoL/TFT stats, matches, and summoner lookups using cache-first tools.",
-    ),
+    )
 }
+
+
+def get_default_context() -> Context:
+    # Default when registry has no match or is empty
+    return context_registry['default']
+
 
 def get_context_options() -> list[dict]:
     """Return router-visible options: [{name, doc}]"""
@@ -62,6 +76,8 @@ def get_context_options() -> list[dict]:
 
 
 def get_context_by_name(name: str | None) -> Context:
-    if not name:
-        return get_default_context()
-    return context_registry.get(name, get_default_context())
+    print(f'Getting context: "{name}"')
+    if not name or name not in context_registry:
+        return context_registry['default']
+    else:
+        return context_registry[name]

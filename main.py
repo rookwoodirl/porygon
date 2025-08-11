@@ -37,7 +37,7 @@ DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
 # OpenAI configuration
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-ROUTER_MODEL = os.getenv('ROUTER_MODEL', 'gpt-4o-mini')
+ROUTER_MODEL = os.getenv('ROUTER_MODEL', 'gpt-5-mini')
 
 if DEBUG:
     logging.getLogger().setLevel(logging.DEBUG)
@@ -227,8 +227,7 @@ def _route_context_name(
         resp = openai_client.chat.completions.create(
             model=ROUTER_MODEL,
             messages=router_messages,
-            temperature=0.0,
-            max_tokens=8,
+            max_completion_tokens=100,
         )
         # Record router billing as its own entry (orchestrator)
         try:
@@ -289,15 +288,15 @@ async def _generate_openai_reply(
         return messages
 
     def _call_openai():
-        model_to_use = getattr(ctx, "model", 'gpt-4.1')
+        model_to_use = ctx.model
         messages = build_messages()
 
         kwargs = {
             "model": model_to_use,
             "messages": messages,
-            "temperature": 0.7,
-            "max_tokens": 400,
+            "max_completion_tokens": ctx.max_completion_tokens,
         }
+
         if getattr(ctx, "tools", None):
             kwargs["tools"] = ctx.tools  # type: ignore[assignment]
             kwargs["tool_choice"] = "auto"
@@ -375,8 +374,7 @@ async def _generate_openai_reply(
         second = openai_client.chat.completions.create(
             model=model_to_use,
             messages=messages,
-            temperature=0.7,
-            max_tokens=400,
+            max_completion_tokens=ctx.max_completion_tokens,
         )
         try:
             _record_billing(
@@ -390,6 +388,7 @@ async def _generate_openai_reply(
             )
         except Exception:
             pass
+        print('response:', second.choices[0].message.content)
         return _strip_name_prefixes((second.choices[0].message.content or "").strip()) if second.choices else ""
 
     try:
