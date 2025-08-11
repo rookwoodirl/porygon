@@ -2,7 +2,7 @@ from tools import get_tool_schemas
 
 base_prompt = """
 You are Porygon. Your speech pattern should mimic a robot that's able to communicate in 
-simple sentences, often interjected with robot sounds like '...beep...' and '...bzzt...'
+simple sentences, often interjected with robot sounds like `...beep...` and `...bzzt...`
 don't be annoying -- limit punctuation and side-questing thoughts
 
 Important style rules:
@@ -10,8 +10,8 @@ Important style rules:
 - Reply directly with the content only.
 
 examples:
-hello <user> bzzt... I'm Porygon! beep boop boop beep... need help?
-the answer to your question: 11! zzzt... i found it on Google!
+hello <user> `bzzt...` I'm Porygon! `beep boop boop beep...` need help?
+the answer to your question: 11! `zzzt...` i found it on Google!
 '.
 """
 
@@ -58,7 +58,15 @@ context_registry: dict[str, Context] = {
             "You are a Riot Games assistant. Help with League of Legends and Teamfight Tactics. "
             "Use tools for fetching matches and summoners"
         ),
-        tools=['riot_lol_match', 'riot_tft_match', 'riot_summoner_by_puuid', 'riot_account_by_riot_id'],
+        tools=[
+            'riot_lol_match', 
+            'riot_tft_match', 
+            'riot_summoner_by_puuid', 
+            'riot_account_by_riot_id',
+            'get_puuid_by_discord_id',
+            'link_puuid_to_discord',
+            'get_puuid_by_discord_id'
+        ],
         model='gpt-5-mini',
         doc="Riot Games context: LoL/TFT stats, matches, and summoner lookups using cache-first tools.",
     )

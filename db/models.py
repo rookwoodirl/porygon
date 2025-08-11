@@ -60,6 +60,14 @@ class Summoner(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class Account(Base):
+    __tablename__ = "accounts"
+    """Links a Discord user id to a Riot PUUID. Composite primary key allows multiple links per user."""
+    discord_id: Mapped[str] = mapped_column(String(32), primary_key=True, nullable=False)
+    puuid: Mapped[str] = mapped_column(String(78), primary_key=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class APILog(Base):
     __tablename__ = "log_api"
 
@@ -95,6 +103,7 @@ __all__ = [
     "LOLMatch",
     "APILog",
     "Summoner",
+    "Account",
     "Billing",
     "ModelPricing",
 ]

@@ -6,10 +6,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional
 
 import httpx
-import json
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
-from db.models import APILog, TFTMatch, LOLMatch, Summoner
+from db.models import APILog
 
 
 class RiotApiError(RuntimeError):
@@ -155,68 +154,16 @@ class RiotApiClient:
 
     # ---------- League of Legends (LoL) endpoints ----------
     def lol_get_summoner_by_name(self, summoner_name: str) -> Mapping[str, Any]:
-        url = f"{self._platform_base()}/lol/summoner/v4/summoners/by-name/{summoner_name}"
+        url = f"{self._platform_base()}/lol/summoner/v4/summoners/by-name/{summoner_name.replace('#', '/')}"
         data = self._get_json(url)
         self._log_api(endpoint="/lol/summoner/v4/summoners/by-name", params={"summoner_name": summoner_name}, full_url=str(httpx.URL(url)))
         # upsert into summoners
-        if self._Session and isinstance(data, Mapping) and isinstance(data.get("puuid"), str):
-            try:
-                with self._Session() as session:
-                    puuid = str(data["puuid"])  # type: ignore[index]
-                    existing = session.get(Summoner, puuid)
-                    values = {
-                        "discord_id": None,
-                        "profile_icon_id": data.get("profileIconId"),
-                        "revision_date": data.get("revisionDate"),
-                        "summoner_level": data.get("summonerLevel"),
-                    }
-                    if existing:
-                        for k, v in values.items():
-                            setattr(existing, k, v)
-                    else:
-                        session.add(Summoner(puuid=puuid, **values))
-                    session.commit()
-            except Exception:
-                pass
         return data
 
     def lol_get_summoner_by_puuid(self, puuid: str) -> Mapping[str, Any]:
-        # cache-first by PUUID
-        if self._Session:
-            try:
-                with self._Session() as session:
-                    cached = session.get(Summoner, puuid)
-                    if cached:
-                        return {
-                            "puuid": cached.puuid,
-                            "profileIconId": cached.profile_icon_id,
-                            "revisionDate": cached.revision_date,
-                            "summonerLevel": cached.summoner_level,
-                        }
-            except Exception:
-                pass
         url = f"{self._platform_base()}/lol/summoner/v4/summoners/by-puuid/{puuid}"
         data = self._get_json(url)
         self._log_api(endpoint="/lol/summoner/v4/summoners/by-puuid", params={"puuid": puuid}, full_url=str(httpx.URL(url)))
-        if self._Session and isinstance(data, Mapping) and isinstance(data.get("puuid"), str):
-            try:
-                with self._Session() as session:
-                    puuid_val = str(data["puuid"])  # type: ignore[index]
-                    existing = session.get(Summoner, puuid_val)
-                    values = {
-                        "discord_id": None,
-                        "profile_icon_id": data.get("profileIconId"),
-                        "revision_date": data.get("revisionDate"),
-                        "summoner_level": data.get("summonerLevel"),
-                    }
-                    if existing:
-                        for k, v in values.items():
-                            setattr(existing, k, v)
-                    else:
-                        session.add(Summoner(puuid=puuid_val, **values))
-                    session.commit()
-            except Exception:
-                pass
         return data
 
     def lol_get_league_entries_by_summoner(self, encrypted_summoner_id: str) -> List[Mapping[str, Any]]:
@@ -253,108 +200,24 @@ class RiotApiClient:
         return data
 
     def lol_get_match(self, match_id: str) -> Mapping[str, Any]:
-        # cache-first by match id
-        if self._Session:
-            try:
-                with self._Session() as session:
-                    cached = session.get(LOLMatch, match_id)
-                    if cached:
-                        return cached.match_data
-            except Exception:
-                pass
         api_version = "v5"
         url = f"{self._region_base()}/lol/match/{api_version}/matches/{match_id}"
         data = self._get_json(url)
         self._log_api(endpoint=f"/lol/match/{api_version}/matches", params={"match_id": match_id}, full_url=str(httpx.URL(url)))
-        # persist LoL match
-        if self._Session and isinstance(data, Mapping):
-            try:
-                # populate "players" column with info.participants.puuid
-                info = data.get("info") if isinstance(data.get("info"), Mapping) else {}
-                participants = info.get("participants") if isinstance(info, Mapping) else None
-                players: List[str] = []
-                if isinstance(participants, list):
-                    players = [str(p.get("puuid")) for p in participants if isinstance(p, Mapping) and p.get("puuid")]
-
-                # populate into the table using super cool alembic
-                with self._Session() as session:
-                    existing = session.get(LOLMatch, match_id)
-                    if existing:
-                        existing.match_data = dict(data)
-                        if players:
-                            existing.players = players
-                        if api_version:
-                            existing.api_version = api_version
-                    else:
-                        session.add(LOLMatch(id=match_id, match_data=dict(data), players=players, api_version=api_version))
-                    session.commit()
-            except Exception:
-                pass
         return data
 
     # ---------- Teamfight Tactics (TFT) endpoints ----------
     def tft_get_summoner_by_name(self, summoner_name: str) -> Mapping[str, Any]:
-        url = f"{self._platform_base()}/tft/summoner/v1/summoners/by-name/{summoner_name}"
+        url = f"{self._platform_base()}/tft/summoner/v1/summoners/by-name/{summoner_name.replace('#', '/')}"
         data = self._get_json(url)
         self._log_api(endpoint="/tft/summoner/v1/summoners/by-name", params={"summoner_name": summoner_name}, full_url=str(httpx.URL(url)))
-        if self._Session and isinstance(data, Mapping) and isinstance(data.get("puuid"), str):
-            try:
-                with self._Session() as session:
-                    puuid = str(data["puuid"])  # type: ignore[index]
-                    existing = session.get(Summoner, puuid)
-                    values = {
-                        "discord_id": None,
-                        "profile_icon_id": data.get("profileIconId"),
-                        "revision_date": data.get("revisionDate"),
-                        "summoner_level": data.get("summonerLevel"),
-                    }
-                    if existing:
-                        for k, v in values.items():
-                            setattr(existing, k, v)
-                    else:
-                        session.add(Summoner(puuid=puuid, **values))
-                    session.commit()
-            except Exception:
-                pass
+        return data
         return data
 
     def tft_get_summoner_by_puuid(self, puuid: str) -> Mapping[str, Any]:
-        # cache-first by PUUID
-        if self._Session:
-            try:
-                with self._Session() as session:
-                    cached = session.get(Summoner, puuid)
-                    if cached:
-                        return {
-                            "puuid": cached.puuid,
-                            "profileIconId": cached.profile_icon_id,
-                            "revisionDate": cached.revision_date,
-                            "summonerLevel": cached.summoner_level,
-                        }
-            except Exception:
-                pass
         url = f"{self._platform_base()}/tft/summoner/v1/summoners/by-puuid/{puuid}"
         data = self._get_json(url)
         self._log_api(endpoint="/tft/summoner/v1/summoners/by-puuid", params={"puuid": puuid}, full_url=str(httpx.URL(url)))
-        if self._Session and isinstance(data, Mapping) and isinstance(data.get("puuid"), str):
-            try:
-                with self._Session() as session:
-                    puuid_val = str(data["puuid"])  # type: ignore[index]
-                    existing = session.get(Summoner, puuid_val)
-                    values = {
-                        "discord_id": None,
-                        "profile_icon_id": data.get("profileIconId"),
-                        "revision_date": data.get("revisionDate"),
-                        "summoner_level": data.get("summonerLevel"),
-                    }
-                    if existing:
-                        for k, v in values.items():
-                            setattr(existing, k, v)
-                    else:
-                        session.add(Summoner(puuid=puuid_val, **values))
-                    session.commit()
-            except Exception:
-                pass
         return data
 
     def tft_get_league_entries_by_summoner(self, encrypted_summoner_id: str) -> List[Mapping[str, Any]]:
@@ -377,41 +240,10 @@ class RiotApiClient:
         return data
 
     def tft_get_match(self, match_id: str) -> Mapping[str, Any]:
-        # cache-first by match id
-        if self._Session:
-            try:
-                with self._Session() as session:
-                    cached = session.get(TFTMatch, match_id)
-                    if cached:
-                        return cached.match_data
-            except Exception:
-                pass
         api_version = "v1"
         url = f"{self._region_base()}/tft/match/{api_version}/matches/{match_id}"
         data = self._get_json(url)
         self._log_api(endpoint=f"/tft/match/{api_version}/matches", params={"match_id": match_id}, full_url=str(httpx.URL(url)))
-        # persist TFT match
-        if self._Session and isinstance(data, Mapping):
-            try:
-                metadata = data.get("metadata") if isinstance(data.get("metadata"), Mapping) else {}
-                players: List[str] = []
-                if isinstance(metadata, Mapping) and isinstance(metadata.get("participants"), list):
-                    players = [str(p) for p in metadata.get("participants")]
-
-
-                with self._Session() as session:
-                    existing = session.get(TFTMatch, match_id)
-                    if existing:
-                        existing.match_data = dict(data)
-                        if players:
-                            existing.players = players
-                        if api_version:
-                            existing.api_version = api_version
-                    else:
-                        session.add(TFTMatch(id=match_id, match_data=dict(data), players=players, api_version=api_version))
-                    session.commit()
-            except Exception:
-                pass
         return data
 
 

@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 import logging
+import inspect
 import re
 import discord
 from discord.ext import commands
@@ -198,24 +199,40 @@ async def hello(ctx):
 
 
 def _route_context_name(
+    chat_history: list[dict] | None,
     user_message: str,
     discord_user_id: str | None = None,
     discord_username: str | None = None,
 ) -> str | None:
-    """Use a small model to pick a context name from the registry. Returns None for default."""
+    """Use a small model to pick a context name from the registry. Uses recent chat history plus the latest user message. Returns None for default."""
     options = get_context_options()
     if not options or not openai_client:
         return None
 
     option_block = "\n".join(f"- {opt['name']}: {opt['doc']}" for opt in options)
     sys_msg = (
-        "You are a context router. Choose the single best context name from the list based on the user's message.\n"
+        "You are a context router. Choose the single best context name from the list based on the user's message and recent conversation history.\n"
         "If none clearly apply, output 'default'.\n"
         "Output ONLY the name with no extra words."
     )
+
+    # Build a concise conversation history string if provided
+    history_block = ""
+    try:
+        if chat_history:
+            parts: list[str] = []
+            for m in chat_history:
+                role = m.get("role", "user")
+                content = (m.get("content") or "").replace("\n", " ")
+                parts.append(f"{role}: {content}")
+            history_block = "\n".join(parts)
+    except Exception:
+        history_block = ""
+
     user_msg = (
         f"Contexts:\n{option_block}\n\n"
-        f"User message:\n{user_message}\n\n"
+        f"Conversation history:\n{history_block}\n\n"
+        f"Latest user message:\n{user_message}\n\n"
         "Answer with just the context name."
     )
 
@@ -227,7 +244,7 @@ def _route_context_name(
         resp = openai_client.chat.completions.create(
             model=ROUTER_MODEL,
             messages=router_messages,
-            max_completion_tokens=100,
+            max_completion_tokens=400,
         )
         # Record router billing as its own entry (orchestrator)
         try:
@@ -267,6 +284,7 @@ async def _generate_openai_reply(
     # Route to a context based on registry docs using a small model
     selected_name = await asyncio.to_thread(
         _route_context_name,
+        chat_history,
         user_message,
         discord_user_id,
         discord_username,
@@ -352,11 +370,22 @@ async def _generate_openai_reply(
                 args = json.loads(raw_args)
             except Exception:
                 args = {}
+            # Inject requesting discord id into tool args so tool-level caching can record it
+            # Defer injection of requesting_discord_id until we know the target fn accepts it
 
             result_text = f"Tool '{tool_name}' not available."
             fn = tool_funcs.get(tool_name)
             if fn:
                 try:
+                    # Inject requesting_discord_id only if the function accepts that parameter
+                    try:
+                        sig = inspect.signature(fn)
+                        if discord_user_id is not None and "requesting_discord_id" in sig.parameters and isinstance(args, dict) and "requesting_discord_id" not in args:
+                            args["requesting_discord_id"] = discord_user_id
+                    except Exception:
+                        # If signature inspection fails, skip injection
+                        pass
+
                     result_text = fn(**args)
                 except Exception as e:
                     result_text = f"Error executing tool '{tool_name}': {e}"
@@ -386,9 +415,11 @@ async def _generate_openai_reply(
                 discord_user_id=discord_user_id,
                 discord_username=discord_username,
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"OpenAI error: {e}")
             pass
-        print('response:', second.choices[0].message.content)
+        # Log the final response (use proper logging level API)
+        logger.info("response: %s", second.choices[0].message.content)
         return _strip_name_prefixes((second.choices[0].message.content or "").strip()) if second.choices else ""
 
     try:

@@ -19,5 +19,5 @@ CREATE TABLE IF NOT EXISTS porygon.messages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_messages_channel_created ON messages (discord_channel_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_channel_created ON porygon.messages (discord_channel_id, created_at DESC);
 

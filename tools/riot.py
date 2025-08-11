@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from tools import tool
@@ -23,6 +24,9 @@ def _session_factory() -> sessionmaker | None:
         return None
 
 
+logger = logging.getLogger(__name__)
+
+
 def _client() -> RiotApiClient:
     return RiotApiClient(
         api_key=os.getenv("RIOT_API_KEY"),
@@ -38,12 +42,20 @@ def riot_lol_match(match_id: str) -> str:
     Args:
       match_id: Riot match id, e.g., NA1_123..."""
     sf = _session_factory()
+    if not sf:
+        logger.warning("DATABASE_URL not set or session factory failed; skipping LOL match persistence")
+    # cache-first: return DB copy if present
     if sf:
-        with sf() as s:
-            row = s.get(LOLMatch, match_id)
-            if row:
-                return json.dumps(row.match_data, ensure_ascii=False)
+        try:
+            with sf() as s:
+                row = s.get(LOLMatch, match_id)
+                if row:
+                    return json.dumps(row.match_data, ensure_ascii=False)
+        except Exception as e:
+            logger.exception("Failed reading LOLMatch from DB: %s", e)
+
     data = _client().lol_get_match(match_id)
+
     return json.dumps(data, ensure_ascii=False)
 
 
@@ -54,46 +66,73 @@ def riot_tft_match(match_id: str) -> str:
     Args:
       match_id: Riot match id"""
     sf = _session_factory()
+    if not sf:
+        logger.warning("DATABASE_URL not set or session factory failed; skipping TFT match persistence")
     if sf:
-        with sf() as s:
-            row = s.get(TFTMatch, match_id)
-            if row:
-                return json.dumps(row.match_data, ensure_ascii=False)
+        try:
+            with sf() as s:
+                row = s.get(TFTMatch, match_id)
+                if row:
+                    return json.dumps(row.match_data, ensure_ascii=False)
+        except Exception as e:
+            logger.exception("Failed reading TFTMatch from DB: %s", e)
+
     data = _client().tft_get_match(match_id)
+
     return json.dumps(data, ensure_ascii=False)
 
 
 @tool("riot_summoner_by_puuid")
-def riot_summoner_by_puuid(puuid: str) -> str:
+def riot_summoner_by_puuid(puuid: str, requesting_discord_id: str | None = None) -> str:
     """Get a summoner by PUUID (cache-first; LoL then TFT). Returns JSON string.
 
     Args:
       puuid: Summoner PUUID"""
     sf = _session_factory()
+    if not sf:
+        logger.warning("DATABASE_URL not set or session factory failed; skipping Summoner persistence (by puuid)")
     if sf:
-        with sf() as s:
-            row = s.get(Summoner, puuid)
-            if row:
-                return json.dumps(
-                    {
-                        "puuid": row.puuid,
-                        "profileIconId": row.profile_icon_id,
-                        "revisionDate": row.revision_date,
-                        "summonerLevel": row.summoner_level,
-                        "created_at": row.created_at.isoformat(),
-                    },
-                    ensure_ascii=False,
-                )
+        try:
+            with sf() as s:
+                row = s.get(Summoner, puuid)
+                if row:
+                    # If requesting_discord_id provided and not yet stored, persist it now
+                    try:
+                        if requesting_discord_id and not getattr(row, "discord_id", None):
+                            row.discord_id = requesting_discord_id
+                            s.add(row)
+                            s.commit()
+                            logger.info("Updated cached Summoner puuid=%s with discord_id=%s", puuid, requesting_discord_id)
+                    except Exception as e:
+                        logger.exception("Failed updating discord_id on cached Summoner %s: %s", puuid, e)
+
+                    return json.dumps(
+                        {
+                            "puuid": row.puuid,
+                            "profileIconId": row.profile_icon_id,
+                            "revisionDate": row.revision_date,
+                            "summonerLevel": row.summoner_level,
+                            "discord_id": row.discord_id,
+                            "created_at": row.created_at.isoformat(),
+                        },
+                        ensure_ascii=False,
+                    )
+        except Exception as e:
+            logger.exception("Failed reading Summoner from DB: %s", e)
+
     client = _client()
     try:
         data: Any = client.lol_get_summoner_by_puuid(puuid)
     except RiotApiError:
         data = client.tft_get_summoner_by_puuid(puuid)
+
+    # No DB upserts here by request
+
     return json.dumps(data, ensure_ascii=False)
 
 
 @tool("riot_account_by_riot_id")
-def riot_account_by_riot_id(riot_id: str) -> str:
+def riot_account_by_riot_id(riot_id: str, requesting_discord_id: str | None = None) -> str:
     """Get an account by Riot ID (name#tag). Returns JSON string.
 
     Args:
@@ -104,6 +143,7 @@ def riot_account_by_riot_id(riot_id: str) -> str:
     client = _client()
     data = client.account_get_by_riot_id(name, tag)
     return json.dumps(data, ensure_ascii=False)
+
 
 
 
