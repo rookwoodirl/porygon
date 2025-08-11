@@ -1,11 +1,17 @@
 import os
 import asyncio
+import json
 import logging
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from openai import OpenAI
-from context import get_context
+from context import (
+    get_context_by_name,
+    get_context_options,
+    get_default_context,
+)
+from tools import TOOL_REGISTRY
 
 # Load environment variables from .env file
 load_dotenv()
@@ -26,8 +32,8 @@ DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
 
 # OpenAI configuration
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4.5')
 openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+ROUTER_MODEL = os.getenv('ROUTER_MODEL', 'gpt-4o-mini')
 
 if DEBUG:
     logging.getLogger().setLevel(logging.DEBUG)
@@ -68,13 +74,52 @@ async def hello(ctx):
     await ctx.send(f'Hello {ctx.author.mention}! I am Porygon, your Discord bot!')
 
 
+def _route_context_name(user_message: str) -> str | None:
+    """Use a small model to pick a context name from the registry. Returns None for default."""
+    options = get_context_options()
+    if not options or not openai_client:
+        return None
+
+    option_block = "\n".join(f"- {opt['name']}: {opt['doc']}" for opt in options)
+    sys_msg = (
+        "You are a context router. Choose the single best context name from the list based on the user's message.\n"
+        "If none clearly apply, output 'default'.\n"
+        "Output ONLY the name with no extra words."
+    )
+    user_msg = (
+        f"Contexts:\n{option_block}\n\n"
+        f"User message:\n{user_message}\n\n"
+        "Answer with just the context name."
+    )
+
+    try:
+        resp = openai_client.chat.completions.create(
+            model=ROUTER_MODEL,
+            messages=[
+                {"role": "system", "content": sys_msg},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.0,
+            max_tokens=8,
+        )
+        name = (resp.choices[0].message.content or "").strip()
+        if name.lower() == 'default' or not name:
+            return None
+        # ensure it exists
+        existing = {opt['name'] for opt in options}
+        return name if name in existing else None
+    except Exception:
+        return None
+
+
 async def _generate_openai_reply(context_lines: list[str], user_message: str, channel_name: str | None) -> str:
     """Call OpenAI to generate a reply using provided context."""
     if not openai_client:
         return "OpenAI API key is not configured. Please set OPENAI_API_KEY."
 
-    # Fetch per-channel context (prompt and optional tools)
-    ctx = get_context(channel_name or "")
+    # Route to a context based on registry docs using a small model
+    selected_name = await asyncio.to_thread(_route_context_name, user_message)
+    ctx = get_context_by_name(selected_name) if selected_name else get_default_context()
     system_prompt = ctx.prompt
 
     # Build a compact context block
@@ -89,21 +134,86 @@ async def _generate_openai_reply(context_lines: list[str], user_message: str, ch
     )
 
     def _call_openai():
+        model_to_use = getattr(ctx, "model", 'gpt-4.1')
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
         kwargs = {
-            "model": OPENAI_MODEL,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            "model": model_to_use,
+            "messages": messages,
             "temperature": 0.7,
             "max_tokens": 400,
         }
-        # Optionally enable tools if provided by channel context
         if getattr(ctx, "tools", None):
             kwargs["tools"] = ctx.tools  # type: ignore[assignment]
             kwargs["tool_choice"] = "auto"
-        resp = openai_client.chat.completions.create(**kwargs)
-        return resp.choices[0].message.content.strip() if resp.choices else ""
+
+        # First call — model may request tool calls
+        first = openai_client.chat.completions.create(**kwargs)
+        if not first.choices:
+            return ""
+        msg = first.choices[0].message
+
+        # If no tool calls, return content
+        tool_calls = getattr(msg, "tool_calls", None)
+        if not tool_calls:
+            return (msg.content or "").strip()
+
+        # Add assistant message that includes tool_calls
+        messages.append(
+            {
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            }
+        )
+
+        # Execute tools locally and append tool results
+        for tc in tool_calls:
+            tool_name = tc.function.name
+            raw_args = tc.function.arguments or "{}"
+            try:
+                args = json.loads(raw_args)
+            except Exception:
+                args = {}
+
+            result_text = f"Tool '{tool_name}' not available."
+            spec = TOOL_REGISTRY.get(tool_name)
+            if spec:
+                try:
+                    result_text = spec.execute(args)
+                except Exception as e:
+                    result_text = f"Error executing tool '{tool_name}': {e}"
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "name": tool_name,
+                    "content": result_text,
+                }
+            )
+
+        # Second call including tool results to produce final answer
+        second = openai_client.chat.completions.create(
+            model=model_to_use,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=400,
+        )
+        return (second.choices[0].message.content or "").strip() if second.choices else ""
 
     try:
         return await asyncio.to_thread(_call_openai)
@@ -117,6 +227,12 @@ async def on_message(message: discord.Message):
     """Respond to each user message using OpenAI with recent context."""
     # Avoid responding to ourselves or other bots
     if message.author == bot.user or getattr(message.author, "bot", False):
+        return
+
+    # If message starts with the command prefix, handle as a command only
+    content_text = message.content or ""
+    if content_text.startswith(PREFIX):
+        await bot.process_commands(message)
         return
 
     # Collect previous 9 messages (first 200 chars) to pair with current = total 10

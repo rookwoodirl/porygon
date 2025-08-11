@@ -15,14 +15,7 @@ class QueryResult:
 
 
 class PorygonPostgres:
-    """Thin Postgres helper around psycopg connection pool.
-
-    Primary API: run_query(sql, params=None, many=False) -> QueryResult | int | None
-
-    - If the SQL is a SELECT, returns QueryResult with list of dict rows.
-    - For INSERT/UPDATE/DELETE, returns the affected rowcount.
-    - If many=True, `params` must be a sequence of param sequences for executemany.
-    """
+    """Thin Postgres helper around psycopg connection pool."""
 
     def __init__(self, connection_string: str, min_size: int = 1, max_size: int = 10) -> None:
         if not connection_string:
