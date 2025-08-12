@@ -50,6 +50,12 @@ intents.message_content = True  # Ensure message content is enabled for prefix c
 # Create bot instance
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 
+# Running event loop reference for cross-thread scheduling
+_RUNNING_LOOP: asyncio.AbstractEventLoop | None = None
+
+def get_bot_loop() -> asyncio.AbstractEventLoop | None:
+    return _RUNNING_LOOP
+
 # ---------- billing helpers ----------
 _BillingSessionFactory: sessionmaker | None = None
 
@@ -75,6 +81,42 @@ def _strip_name_prefixes(text: str) -> str:
         if lowered.startswith(prefix):
             return lowered[len(prefix):].lstrip()
     return text
+
+
+def _embed_for_text(text: str, title: str | None = None) -> discord.Embed:
+    """Create a consistent embed for bot responses."""
+    embed = discord.Embed(description=text, color=0x2F3136)
+    if title:
+        embed.title = title
+    return embed
+
+
+async def _edit_message_embed(channel_id: str | int, message_id: str | int, text: str, title: str | None = None) -> None:
+    """Fetch a message and edit it to contain `text` in an embed. Safe to call from event loop."""
+    try:
+        cid = int(channel_id)
+        mid = int(message_id)
+    except Exception:
+        return
+    try:
+        ch = bot.get_channel(cid) or await bot.fetch_channel(cid)
+        msg = await ch.fetch_message(mid)
+        await msg.edit(embed=_embed_for_text(text, title=title), content=None)
+    except Exception:
+        # Best-effort; don't raise
+        return
+
+
+def _schedule_edit_placeholder(channel_id: str | int, message_id: str | int, text: str, title: str | None = None) -> None:
+    """Schedule an edit of the placeholder embed from non-async threads."""
+    try:
+        loop = get_bot_loop()
+        if not loop or not getattr(loop, "is_running", lambda: False)():
+            return
+        coro = _edit_message_embed(channel_id, message_id, text, title=title)
+        asyncio.run_coroutine_threadsafe(coro, loop)
+    except Exception:
+        return
 
 
 def _is_directed_to_bot(message: discord.Message) -> bool:
@@ -172,6 +214,11 @@ def _record_billing(
 @bot.event
 async def on_ready():
     """Event triggered when the bot is ready and connected to Discord."""
+    global _RUNNING_LOOP
+    try:
+        _RUNNING_LOOP = asyncio.get_running_loop()
+    except Exception:
+        _RUNNING_LOOP = None
     logger.info(f'{bot.user} has connected to Discord!')
     logger.info(f'Bot is in {len(bot.guilds)} guilds')
 
@@ -179,23 +226,23 @@ async def on_ready():
 async def on_command_error(ctx, error):
     """Handle command errors."""
     if isinstance(error, commands.CommandNotFound):
-        await ctx.send(f"Command not found. Use `{PREFIX}help` to see available commands.")
+        await ctx.send(embed=_embed_for_text(f"Command not found. Use `{PREFIX}help` to see available commands."))
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"Missing required argument. Use `{PREFIX}help {ctx.command}` for usage.")
+        await ctx.send(embed=_embed_for_text(f"Missing required argument. Use `{PREFIX}help {ctx.command}` for usage."))
     else:
         logger.error(f"An error occurred: {error}")
-        await ctx.send("An error occurred while processing the command.")
+        await ctx.send(embed=_embed_for_text("An error occurred while processing the command."))
 
 @bot.command(name='ping')
 async def ping(ctx):
     """Simple ping command to test bot responsiveness."""
     latency = round(bot.latency * 1000)
-    await ctx.send(f'Pong! Latency: {latency}ms')
+    await ctx.send(embed=_embed_for_text(f'Pong! Latency: {latency}ms'))
 
 @bot.command(name='hello')
 async def hello(ctx):
     """Say hello to the user."""
-    await ctx.send(f'Hello {ctx.author.mention}! I am Porygon, your Discord bot!')
+    await ctx.send(embed=_embed_for_text(f'Hello {ctx.author.mention}! I am Porygon, your Discord bot!'))
 
 
 def _route_context_name(
@@ -276,6 +323,8 @@ async def _generate_openai_reply(
     channel_name: str | None,
     discord_user_id: str | None,
     discord_username: str | None,
+    placeholder_channel_id: str | None = None,
+    placeholder_message_id: str | None = None,
 ) -> str:
     """Call OpenAI to generate a reply using provided context."""
     if not openai_client:
@@ -337,10 +386,16 @@ async def _generate_openai_reply(
             return ""
         msg = first.choices[0].message
 
-        # If no tool calls, return content
+        # If no tool calls, return content (and update placeholder if present)
         tool_calls = getattr(msg, "tool_calls", None)
+        content_only = _strip_name_prefixes((msg.content or "").strip())
         if not tool_calls:
-            return _strip_name_prefixes((msg.content or "").strip())
+            try:
+                if placeholder_channel_id and placeholder_message_id:
+                    _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, content_only)
+            except Exception:
+                pass
+            return content_only
 
         # Add assistant message that includes tool_calls
         messages.append(
@@ -372,6 +427,13 @@ async def _generate_openai_reply(
                 args = {}
             # Inject requesting discord id into tool args so tool-level caching can record it
             # Defer injection of requesting_discord_id until we know the target fn accepts it
+
+            # Update placeholder to indicate which tool is being called
+            try:
+                if placeholder_channel_id and placeholder_message_id:
+                    _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, f"calling {tool_name}...")
+            except Exception:
+                pass
 
             result_text = f"Tool '{tool_name}' not available."
             fn = tool_funcs.get(tool_name)
@@ -420,7 +482,13 @@ async def _generate_openai_reply(
             pass
         # Log the final response (use proper logging level API)
         logger.info("response: %s", second.choices[0].message.content)
-        return _strip_name_prefixes((second.choices[0].message.content or "").strip()) if second.choices else ""
+        final = _strip_name_prefixes((second.choices[0].message.content or "").strip()) if second.choices else ""
+        try:
+            if placeholder_channel_id and placeholder_message_id:
+                _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, final)
+        except Exception:
+            pass
+        return final
 
     try:
         return await asyncio.to_thread(_call_openai)
@@ -484,16 +552,56 @@ async def on_message(message: discord.Message):
     except Exception:
         _discord_username = None
 
+    # Send an initial hourglass embed so users see we are working
+    placeholder_msg = None
+    try:
+        placeholder_msg = await message.reply(embed=_embed_for_text("⌛ working..."))
+    except Exception:
+        placeholder_msg = None
+
+    # Prepare placeholder ids to let the background worker update the embed
+    placeholder_channel_id = None
+    placeholder_message_id = None
+    try:
+        if placeholder_msg:
+            placeholder_channel_id = str(getattr(placeholder_msg.channel, 'id', getattr(message.channel, 'id', None)))
+            placeholder_message_id = str(getattr(placeholder_msg, 'id', None))
+    except Exception:
+        placeholder_channel_id = None
+        placeholder_message_id = None
+
     reply_text = await _generate_openai_reply(
         chat_history,
         message.content or "",
         channel_name,
         _discord_user_id,
         _discord_username,
+        placeholder_channel_id,
+        placeholder_message_id,
     )
     if reply_text:
         try:
-            await message.reply(reply_text)
+            # If we have a placeholder, update it with the final response
+            if placeholder_msg:
+                try:
+                    await placeholder_msg.edit(embed=_embed_for_text(reply_text), content=None)
+                except Exception:
+                    # Fallback to sending a new reply
+                    if isinstance(reply_text, str) and len(reply_text) <= 4096:
+                        await message.reply(embed=_embed_for_text(reply_text))
+                    else:
+                        max_chunk = 4000
+                        parts = [reply_text[i:i+max_chunk] for i in range(0, len(reply_text), max_chunk)]
+                        for p in parts:
+                            await message.reply(p)
+            else:
+                if isinstance(reply_text, str) and len(reply_text) <= 4096:
+                    await message.reply(embed=_embed_for_text(reply_text))
+                else:
+                    max_chunk = 4000
+                    parts = [reply_text[i:i+max_chunk] for i in range(0, len(reply_text), max_chunk)]
+                    for p in parts:
+                        await message.reply(p)
         except Exception as e:  # pragma: no cover
             logger.error(f"Failed to send reply: {e}")
 
