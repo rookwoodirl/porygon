@@ -406,127 +406,135 @@ async def _get_openai_reply(
             kwargs["tools"] = ctx.tools  # type: ignore[assignment]
             kwargs["tool_choice"] = "auto"
 
-        # First call — model may request tool calls
-        first = openai_client.chat.completions.create(**kwargs)
-        try:
-            _record_billing(
-                context_name=selected_name or "default",
-                model=model_to_use,
-                messages=messages,
-                tools=ctx.tools if hasattr(ctx, 'tools') else None,
-                usage_obj=getattr(first, 'usage', {}),
-                discord_user_id=discord_user_id,
-                discord_username=discord_username,
-            )
-        except Exception:
-            pass
-        if not first.choices:
-            return ""
-        msg = first.choices[0].message
-
-        # If no tool calls, return content (and update placeholder if present)
-        tool_calls = getattr(msg, "tool_calls", None)
-        content_only = _strip_name_prefixes((msg.content or "").strip())
-        if not tool_calls:
-            try:
-                if placeholder_channel_id and placeholder_message_id:
-                    _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, content_only)
-            except Exception:
-                pass
-            return content_only
-
-        # Add assistant message that includes tool_calls
-        messages.append(
-            {
-                "role": "assistant",
-                "content": msg.content or "",
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
-                    for tc in tool_calls
-                ],
-            }
-        )
-
-        # Execute tools locally and append tool results
+        # Iterative loop: model -> (optional) tool calls -> model, up to max iterations
+        max_iterations = 3
         tool_funcs = get_tool_functions()
-        for tc in tool_calls:
-            tool_name = tc.function.name
-            raw_args = tc.function.arguments or "{}"
+        for iteration in range(max_iterations):
+            # Ensure kwargs messages reflect current messages list
+            kwargs["messages"] = messages
+            resp = openai_client.chat.completions.create(**kwargs)
             try:
-                args = json.loads(raw_args)
-            except Exception:
-                args = {}
-            # Inject requesting discord id into tool args so tool-level caching can record it
-            # Defer injection of requesting_discord_id until we know the target fn accepts it
-
-            # Update placeholder to indicate which tool is being called
-            try:
-                if placeholder_channel_id and placeholder_message_id:
-                    _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, f"calling {tool_name}...")
+                _record_billing(
+                    context_name=selected_name or "default",
+                    model=model_to_use,
+                    messages=messages,
+                    tools=ctx.tools if hasattr(ctx, 'tools') else None,
+                    usage_obj=getattr(resp, 'usage', {}),
+                    discord_user_id=discord_user_id,
+                    discord_username=discord_username,
+                )
             except Exception:
                 pass
 
-            result_text = f"Tool '{tool_name}' not available."
-            fn = tool_funcs.get(tool_name)
-            if fn:
+            if not resp.choices:
+                return ""
+            msg = resp.choices[0].message
+
+            # If no tool calls, return content (and update placeholder if present)
+            tool_calls = getattr(msg, "tool_calls", None)
+            content_only = _strip_name_prefixes((msg.content or "").strip())
+            if not tool_calls:
                 try:
-                    # Inject requesting_discord_id only if the function accepts that parameter
-                    try:
-                        sig = inspect.signature(fn)
-                        if discord_user_id is not None and "requesting_discord_id" in sig.parameters and isinstance(args, dict) and "requesting_discord_id" not in args:
-                            args["requesting_discord_id"] = discord_user_id
-                    except Exception:
-                        # If signature inspection fails, skip injection
-                        pass
+                    if placeholder_channel_id and placeholder_message_id:
+                        _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, content_only)
+                except Exception:
+                    pass
+                return content_only
 
-                    result_text = fn(**args)
-                except Exception as e:
-                    result_text = f"Error executing tool '{tool_name}': {e}"
-
+            # Add assistant message that includes tool_calls
             messages.append(
                 {
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "name": tool_name,
-                    "content": result_text,
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in tool_calls
+                    ],
                 }
             )
 
-        # Second call including tool results to produce final answer
-        second = openai_client.chat.completions.create(
-            model=model_to_use,
-            messages=messages,
-            max_completion_tokens=ctx.max_completion_tokens,
-        )
+            # Execute tools locally and append tool results
+            for tc in tool_calls:
+                tool_name = tc.function.name
+                raw_args = tc.function.arguments or "{}"
+                try:
+                    args = json.loads(raw_args)
+                except Exception:
+                    args = {}
+
+                # Update placeholder to indicate which tool is being called
+                try:
+                    if placeholder_channel_id and placeholder_message_id:
+                        _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, f"calling {tool_name}...")
+                except Exception:
+                    pass
+
+                result_text = f"Tool '{tool_name}' not available."
+                fn = tool_funcs.get(tool_name)
+                if fn:
+                    try:
+                        # Inject requesting_discord_id only if the function accepts that parameter
+                        try:
+                            sig = inspect.signature(fn)
+                            if discord_user_id is not None and "requesting_discord_id" in sig.parameters and isinstance(args, dict) and "requesting_discord_id" not in args:
+                                args["requesting_discord_id"] = discord_user_id
+                        except Exception:
+                            # If signature inspection fails, skip injection
+                            pass
+
+                        result_text = fn(**args)
+                    except Exception as e:
+                        result_text = f"Error executing tool '{tool_name}': {e}"
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "name": tool_name,
+                        "content": result_text,
+                    }
+                )
+
+            # Continue loop for next model call which will include the appended tool results
+
+        # If we exit the loop without a model response without tool_calls, make one final call
         try:
-            _record_billing(
-                context_name=selected_name or "default",
+            kwargs["messages"] = messages
+            final_resp = openai_client.chat.completions.create(
                 model=model_to_use,
                 messages=messages,
-                tools=ctx.tools if hasattr(ctx, 'tools') else None,
-                usage_obj=getattr(second, 'usage', {}),
-                discord_user_id=discord_user_id,
-                discord_username=discord_username,
+                max_completion_tokens=ctx.max_completion_tokens,
             )
+            try:
+                _record_billing(
+                    context_name=selected_name or "default",
+                    model=model_to_use,
+                    messages=messages,
+                    tools=ctx.tools if hasattr(ctx, 'tools') else None,
+                    usage_obj=getattr(final_resp, 'usage', {}),
+                    discord_user_id=discord_user_id,
+                    discord_username=discord_username,
+                )
+            except Exception:
+                pass
+            final = _strip_name_prefixes((final_resp.choices[0].message.content or "").strip()) if getattr(final_resp, 'choices', None) else ""
+            try:
+                if placeholder_channel_id and placeholder_message_id:
+                    _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, final)
+            except Exception:
+                pass
+            logger.info("response: %s", final_resp.choices[0].message.content if getattr(final_resp, 'choices', None) else None)
+            return final
         except Exception as e:
             logger.error(f"OpenAI error: {e}")
-            pass
-        # Log the final response (use proper logging level API)
-        logger.info("response: %s", second.choices[0].message.content)
-        final = _strip_name_prefixes((second.choices[0].message.content or "").strip()) if second.choices else ""
-        try:
-            if placeholder_channel_id and placeholder_message_id:
-                _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, final)
-        except Exception:
-            pass
-        return final
+            return ""
 
     try:
         return await asyncio.to_thread(_call_openai)
