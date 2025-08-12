@@ -83,6 +83,40 @@ def _strip_name_prefixes(text: str) -> str:
     return text
 
 
+def _extract_message_text(message: discord.Message) -> str:
+    """Return the human-readable text for a discord.Message.
+
+    Prefer `message.content`. If empty, extract embed title/description/fields.
+    """
+    try:
+        # Prefer plain content
+        content = (getattr(message, 'content', '') or '').strip()
+        if content:
+            return content
+
+        # Fallback to embed contents
+        parts: list[str] = []
+        embeds = getattr(message, 'embeds', []) or []
+        for e in embeds:
+            try:
+                title = getattr(e, 'title', None)
+                desc = getattr(e, 'description', None)
+                if title:
+                    parts.append(str(title))
+                if desc:
+                    parts.append(str(desc))
+                for f in getattr(e, 'fields', []) or []:
+                    try:
+                        parts.append(f"{getattr(f, 'name', '')}: {getattr(f, 'value', '')}")
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        return " ".join(p for p in parts if p).strip()
+    except Exception:
+        return ""
+
+
 def _embed_for_text(text: str, title: str | None = None) -> discord.Embed:
     """Create a consistent embed for bot responses."""
     embed = discord.Embed(description=text, color=0x2F3136)
@@ -346,6 +380,13 @@ async def _get_openai_reply(
                 break
     except Exception:
         last_user_message = last_user_message or ""
+    
+    metadata = {
+        'author_id' : discord_user_id,
+        'message_id' : m.id,
+        'channel_id' : m.channel.id,
+        'attachments' : m.attachments
+    }
 
     # Prepare a lightweight history for routing (exclude the latest turn to avoid duplication)
     router_history: list[dict] = []
@@ -354,7 +395,7 @@ async def _get_openai_reply(
             author = getattr(m, 'author', None)
             role = "assistant" if (author == bot.user or getattr(author, 'bot', False)) else "user"
             author_name = getattr(author, 'display_name', None) or getattr(author, 'name', None) or "user"
-            content = (getattr(m, 'content', '') or '').replace("\n", " ")
+            content = _extract_message_text(m).replace("\n", " ")
             if content:
                 router_history.append({"role": role, "content": f"{author_name}: {content}"})
     except Exception:
@@ -383,7 +424,7 @@ async def _get_openai_reply(
                 author = getattr(m, 'author', None)
                 role = "assistant" if (author == bot.user or getattr(author, 'bot', False)) else "user"
                 author_name = getattr(author, 'display_name', None) or getattr(author, 'name', None) or "user"
-                content = (getattr(m, 'content', '') or '').strip()
+                content = _extract_message_text(m)
                 if not content:
                     continue
                 # Add name prefix to aid multi-user disambiguation in channels
@@ -483,8 +524,11 @@ async def _get_openai_reply(
                         # Inject requesting_discord_id only if the function accepts that parameter
                         try:
                             sig = inspect.signature(fn)
-                            if discord_user_id is not None and "requesting_discord_id" in sig.parameters and isinstance(args, dict) and "requesting_discord_id" not in args:
-                                args["requesting_discord_id"] = discord_user_id
+
+                            # update toolcall with metadata the bot might not have access to
+                            if isinstance(args, dict):
+                                args.update({ k : v for k, v in metadata.items() if k in sig.parameters })
+                            
                         except Exception:
                             # If signature inspection fails, skip injection
                             pass

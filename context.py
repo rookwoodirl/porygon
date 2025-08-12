@@ -68,7 +68,7 @@ context_registry: dict[str, Context] = {
             'get_puuid_by_discord_id'
         ],
         model='gpt-5-mini',
-        doc="Riot Games context: LoL/TFT stats, matches, and summoner lookups using cache-first tools.",
+        doc="Riot Games context: LoL/TFT stats, matches, and account linking.",
     )
 }
 

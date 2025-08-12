@@ -27,11 +27,12 @@ def _get_session_factory() -> Optional[sessionmaker]:
     return _SessionFactory
 
 
-def link_puuid_to_discord(puuid: str, discord_id: str) -> bool:
+def link_puuid_to_discord(puuid: str, discord_id: str | None = None, author_id: str | None = None) -> bool:
     """Link a Riot PUUID to a Discord user id in the Accounts table.
 
     Returns True if a row exists after the operation (created or already present), False on failure or no DB.
     """
+    discord_id = discord_id or author_id
     sf = _get_session_factory()
     if not sf:
         return False

@@ -21,21 +21,20 @@ def _session_factory() -> sessionmaker | None:
         return None
 
 @tool("link_puuid_to_discord")
-def link_puuid_to_discord(puuid: str, discord_id: str) -> str:
+def link_puuid_to_discord(puuid: str, author_id: str | None = None) -> str:
     """Link a Riot PUUID to a Discord user id in the Accounts table.
 
     Args:
       puuid: Riot PUUID to link
-      discord_id: Discord user id to associate
 
     Returns a JSON object: {"ok": true/false}
     """
-    ok = _link(puuid, discord_id)
+    ok = _link(puuid, author_id)
     return json.dumps({"ok": ok})
 
 
 @tool("get_puuid_by_discord_id")
-def get_puuid_by_discord_id(discord_id: str) -> str:
+def get_puuid_by_discord_id(discord_id : str | None = None, author_id: str | None = None) -> str:
     """Lookup puuids associated with a Discord user id from the Summoner table.
 
     Args:
@@ -44,6 +43,9 @@ def get_puuid_by_discord_id(discord_id: str) -> str:
     Returns:
       JSON array (string) of puuids associated with that discord id.
     """
+
+    discord_id = discord_id or author_id
+
     sf = _session_factory()
     if not sf:
         return json.dumps([], ensure_ascii=False)
