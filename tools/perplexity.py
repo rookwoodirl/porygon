@@ -6,11 +6,12 @@ import re
 
 import httpx
 
+from tools import tool
 
-TOOL_NAME = "perplexity_search"
 
 
-def _call_perplexity(query: str, *, model: str, temperature: float = 0.2, max_tokens: int = 600) -> Dict[str, Any]:
+
+def _call_perplexity(query: str) -> Dict[str, Any]:
     api_key = os.getenv("PPLX_API_KEY")
     if not api_key:
         raise RuntimeError("PPLX_API_KEY is not set. Add it to your environment to enable Perplexity searches.")
@@ -21,7 +22,7 @@ def _call_perplexity(query: str, *, model: str, temperature: float = 0.2, max_to
         "Content-Type": "application/json",
     }
     payload = {
-        "model": model,
+        "model": 'sonar',
         "messages": [
             {
                 "role": "system",
@@ -32,14 +33,19 @@ def _call_perplexity(query: str, *, model: str, temperature: float = 0.2, max_to
                 ),
             },
             {"role": "user", "content": query},
-        ],
-        "temperature": max(0.0, min(2.0, float(temperature))),
-        "max_tokens": max(64, int(max_tokens)),
-        "top_p": 1.0,
+        ]
     }
 
     with httpx.Client(timeout=30) as client:
         resp = client.post(endpoint, headers=headers, json=payload)
+        # If the API returns an error, include the body to help debugging
+        if resp.status_code != 200:
+            body = None
+            try:
+                body = resp.text
+            except Exception:
+                body = '<unreadable body>'
+            raise RuntimeError(f"Perplexity API error {resp.status_code}: {body}")
         resp.raise_for_status()
         return resp.json()
 
@@ -79,53 +85,17 @@ def _extract_answer_and_sources(obj: Dict[str, Any]) -> str:
     return content or "No result."
 
 
-schema: Dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": TOOL_NAME,
-        "description": (
-            "Perform an internet search using Perplexity and return a concise answer with sources. "
-            "Refuse and do NOT search if the query is pornographic/sexually explicit, contains gore/graphic violence, "
-            "or requests illegal content. Politely decline in one short sentence."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query to answer, phrased as a question or keywords.",
-                },
-                "model": {
-                    "type": "string",
-                    "description": (
-                        "Perplexity online model to use (e.g., 'sonar-small-online', 'sonar-medium-online'). "
-                        "Defaults to PPLX_MODEL env or 'sonar-small-online'."
-                    ),
-                },
-                "temperature": {
-                    "type": "number",
-                    "description": "Sampling temperature (0-2). Lower is more deterministic.",
-                    "minimum": 0,
-                    "maximum": 2,
-                    "default": 0.2,
-                },
-                "max_tokens": {
-                    "type": "integer",
-                    "description": "Max tokens in the answer (min 64).",
-                    "minimum": 64,
-                    "default": 600,
-                },
-            },
-            "required": ["query"],
-            "additionalProperties": False,
-        },
-    },
-}
+@tool('perplexity_search')
+def perplexity_search(query: str, model: str | None = None, temperature: float = 0.2, max_tokens: int = 600) -> str:
+    """Perform an internet search using Perplexity and return a concise answer with sources.
 
-
-def execute(arguments: Dict[str, Any]) -> str:
-    query = str(arguments.get("query", "")).strip()
-    if not query:
+    query: The search query to answer, phrased as a question or keywords.
+    model: Perplexity online model to use (e.g., 'sonar-small-online'). Defaults to PPLX_MODEL env.
+    temperature: Sampling temperature (0-2). Lower is more deterministic.
+    max_tokens: Max tokens in the answer (min 64).
+    """
+    q = str(query or "").strip()
+    if not q:
         raise ValueError("'query' is required")
 
     # Simple content safety check to block disallowed categories
@@ -134,22 +104,18 @@ def execute(arguments: Dict[str, Any]) -> str:
         r"\b(gore|gory|snuff|beheading|decapitation|dismemberment|graphic violence)\b",
         r"\b(illegal|contraband|child\s*porn|cp\b)\b",
     ]
-    ql = query.lower()
+    ql = q.lower()
     if any(re.search(pat, ql) for pat in banned_patterns):
         return "Sorry, I can’t help with that request."
 
-    model = str(arguments.get("model") or os.getenv("PPLX_MODEL", "sonar-small-online"))
-    temperature = float(arguments.get("temperature", 0.2))
-    max_tokens = int(arguments.get("max_tokens", 600))
-
     try:
-        data = _call_perplexity(query, model=model, temperature=temperature, max_tokens=max_tokens)
+        data = _call_perplexity(q)
     except Exception as exc:  # pragma: no cover
         return f"Perplexity error: {exc}"
 
     return _extract_answer_and_sources(data)
 
 
-__all__ = ["TOOL_NAME", "schema", "execute"]
+__all__ = ["perplexity_search"]
 
 

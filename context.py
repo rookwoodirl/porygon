@@ -48,7 +48,7 @@ class Context:
 context_registry: dict[str, Context] = {
     'default' : Context(
         prompt=base_prompt, 
-        tools=['calculator', 'gif', 'perplexity'], 
+        tools=['calculator', 'perplexity_search'], 
         model='gpt-5-mini', 
         doc="Fallback general context."
     ),

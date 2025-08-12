@@ -7,6 +7,8 @@ import re
 
 import httpx
 
+from tools import tool
+
 
 TOOL_NAME = "gif"
 
@@ -42,45 +44,16 @@ def _search_tenor(query: str, limit: int = 25, locale: str | None = None) -> Lis
     return results
 
 
-schema: Dict[str, Any] = {
-    "type": "function",
-    "function": {
-        "name": TOOL_NAME,
-        "description": (
-            "Search for a GIF and return a shareable GIF URL (Discord will auto-embed). "
-            "Refuse and do NOT search if the query is pornographic/sexually explicit, contains gore/graphic violence, "
-            "or requests illegal content. Politely decline in one short sentence. "
-            "When using this tool, do not include ANY words in your response."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search terms for the GIF (e.g., 'excited cat').",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max number of results to consider (1-50).",
-                    "minimum": 1,
-                    "maximum": 50,
-                    "default": 25,
-                },
-                "locale": {
-                    "type": "string",
-                    "description": "BCP-47 language code for localized results (e.g., 'en', 'es').",
-                },
-            },
-            "required": ["query"],
-            "additionalProperties": False,
-        },
-    },
-}
+@tool(TOOL_NAME)
+def gif(query: str, limit: int = 25, locale: str | None = None) -> str:
+    """Search for a GIF and return a shareable GIF URL (Discord will auto-embed).
 
-
-def execute(arguments: Dict[str, Any]) -> str:
-    query = str(arguments.get("query", "")).strip()
-    if not query:
+    query: Search terms for the GIF (e.g., 'excited cat').
+    limit: Max number of results to consider (1-50).
+    locale: BCP-47 language code for localized results (e.g., 'en', 'es').
+    """
+    q = str(query or "").strip()
+    if not q:
         raise ValueError("'query' is required")
 
     banned_patterns = [
@@ -88,14 +61,12 @@ def execute(arguments: Dict[str, Any]) -> str:
         r"\b(gore|gory|snuff|beheading|decapitation|dismemberment|graphic violence)\b",
         r"\b(illegal|contraband|child\s*porn|cp\b)\b",
     ]
-    ql = query.lower()
+    ql = q.lower()
     if any(re.search(pat, ql) for pat in banned_patterns):
         return "Sorry, I can’t help with that request."
 
-    limit = int(arguments.get("limit", 25))
-    locale = arguments.get("locale")
     try:
-        urls = _search_tenor(query=query, limit=limit, locale=locale)
+        urls = _search_tenor(query=q, limit=int(limit), locale=locale)
     except Exception as exc:  # pragma: no cover
         return f"Failed to search GIFs: {exc}"
 
@@ -106,6 +77,6 @@ def execute(arguments: Dict[str, Any]) -> str:
     return random.choice(urls)
 
 
-__all__ = ["TOOL_NAME", "schema", "execute"]
+__all__ = ["TOOL_NAME", "gif"]
 
 
