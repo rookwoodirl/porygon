@@ -5,6 +5,7 @@ import logging
 import inspect
 import re
 import discord
+import random
 from discord.ext import commands
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -116,9 +117,12 @@ def _extract_message_text(message: discord.Message) -> str:
     except Exception:
         return ""
 
-
 def _embed_for_text(text: str, title: str | None = None) -> discord.Embed:
     """Create a consistent embed for bot responses."""
+    md = ['#', '*', '>']
+    sounds = ['beep', 'boop', 'bzzt', 'beep boop boop beep', 'bzzt bzzt', 'brrrrrrr']
+    beep_boop = '\n'.join([ md[random.randint(0, len(md)-1)] + ' ' + sounds[random.randint(0, len(sounds)-1)] ])
+    text = text.replace('bzzt', '\n```md\n' + beep_boop + '\n```')
     embed = discord.Embed(description=text, color=0x2F3136)
     if title:
         embed.title = title
