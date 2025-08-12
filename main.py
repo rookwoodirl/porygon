@@ -317,12 +317,8 @@ def _route_context_name(
         return None
 
 
-async def _generate_openai_reply(
-    chat_history: list[dict],
-    user_message: str,
-    channel_name: str | None,
-    discord_user_id: str | None,
-    discord_username: str | None,
+async def _get_openai_reply(
+    chat_history: list,
     placeholder_channel_id: str | None = None,
     placeholder_message_id: str | None = None,
 ) -> str:
@@ -330,11 +326,45 @@ async def _generate_openai_reply(
     if not openai_client:
         return "OpenAI API key is not configured. Please set OPENAI_API_KEY."
 
+    # Extract the latest user message and metadata from chat_history (list of discord.Message)
+    last_user_message: str = ""
+    discord_user_id: str | None = None
+    discord_username: str | None = None
+    try:
+        for m in reversed(chat_history):
+            # Treat any message not authored by the bot as a user message
+            author = getattr(m, 'author', None)
+            is_bot = bool(author == bot.user or getattr(author, 'bot', False))
+            if not is_bot:
+                content_val = (getattr(m, 'content', '') or '').strip()
+                last_user_message = content_val
+                try:
+                    discord_user_id = str(getattr(author, 'id', '')) or None
+                    discord_username = getattr(author, 'display_name', None) or getattr(author, 'name', None)
+                except Exception:
+                    pass
+                break
+    except Exception:
+        last_user_message = last_user_message or ""
+
+    # Prepare a lightweight history for routing (exclude the latest turn to avoid duplication)
+    router_history: list[dict] = []
+    try:
+        for m in list(chat_history)[:-1]:
+            author = getattr(m, 'author', None)
+            role = "assistant" if (author == bot.user or getattr(author, 'bot', False)) else "user"
+            author_name = getattr(author, 'display_name', None) or getattr(author, 'name', None) or "user"
+            content = (getattr(m, 'content', '') or '').replace("\n", " ")
+            if content:
+                router_history.append({"role": role, "content": f"{author_name}: {content}"})
+    except Exception:
+        router_history = []
+
     # Route to a context based on registry docs using a small model
     selected_name = await asyncio.to_thread(
         _route_context_name,
-        chat_history,
-        user_message,
+        router_history,
+        last_user_message,
         discord_user_id,
         discord_username,
     )
@@ -343,15 +373,23 @@ async def _generate_openai_reply(
 
     # Build chat messages: prior history as separate turns, then the current user message
     def build_messages():
+        """Converts discord chat history to openai message history."""
         messages = [
             {"role": "system", "content": system_prompt},
         ]
-        # Append prior turns (already trimmed)
+        # Append turns from chat_history (list of discord.Message)
         for m in chat_history:
-            if m.get("role") in {"user", "assistant"} and isinstance(m.get("content"), str):
-                messages.append({"role": m["role"], "content": m["content"]})
-        # Current user turn
-        messages.append({"role": "user", "content": user_message})
+            try:
+                author = getattr(m, 'author', None)
+                role = "assistant" if (author == bot.user or getattr(author, 'bot', False)) else "user"
+                author_name = getattr(author, 'display_name', None) or getattr(author, 'name', None) or "user"
+                content = (getattr(m, 'content', '') or '').strip()
+                if not content:
+                    continue
+                # Add name prefix to aid multi-user disambiguation in channels
+                messages.append({"role": role, "content": f"{author_name}: {content}"})
+            except Exception:
+                continue
         return messages
 
     def _call_openai():
@@ -515,42 +553,21 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
-    # Collect previous 9 messages (first 200 chars) to pair with current = total 10
-    # Build structured chat history with roles
-    chat_history: list[dict] = []
+    # Collect previous 9 messages to pair with current = total 10 (list of discord.Message)
+    chat_history: list[discord.Message] = []
     try:
         async for msg in message.channel.history(limit=9, oldest_first=False):
             if msg.id == message.id:
                 continue
-            author_name = getattr(msg.author, 'display_name', None) or msg.author.name
-            content = (msg.content or "").replace("\n", " ")[:200]
-            if not content:
-                continue
-            role = "assistant" if msg.author == bot.user else "user"
-            # Include author tag for disambiguation
-            chat_history.insert(0, {"role": role, "content": f"{author_name}: {content}"})
+            chat_history.insert(0, msg)
     except Exception as e:  # pragma: no cover
         logger.debug(f"Could not fetch history for context: {e}")
 
     # Trim to last 9 prior messages
     chat_history = chat_history[-9:]
 
-    # Channel name best-effort (DMs may not have a name)
-    try:
-        channel_name = getattr(message.channel, "name", None)
-    except Exception:
-        channel_name = None
-
-    # Generate and send reply
-    # Prepare user identifiers for billing
-    try:
-        _discord_user_id = str(message.author.id)
-    except Exception:
-        _discord_user_id = None
-    try:
-        _discord_username = getattr(message.author, 'display_name', None) or message.author.name
-    except Exception:
-        _discord_username = None
+    # Include the current message as the latest user turn
+    chat_history.append(message)
 
     # Send an initial hourglass embed so users see we are working
     placeholder_msg = None
@@ -570,12 +587,8 @@ async def on_message(message: discord.Message):
         placeholder_channel_id = None
         placeholder_message_id = None
 
-    reply_text = await _generate_openai_reply(
+    reply_text = await _get_openai_reply(
         chat_history,
-        message.content or "",
-        channel_name,
-        _discord_user_id,
-        _discord_username,
         placeholder_channel_id,
         placeholder_message_id,
     )
