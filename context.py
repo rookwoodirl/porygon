@@ -50,8 +50,7 @@ context_registry: dict[str, Context] = {
     'riot': Context(
         prompt=(
             base_prompt + "\n" +
-            "You are a Riot Games assistant. Help with League of Legends and Teamfight Tactics. "
-            "Use tools for fetching matches and summoners"
+            "Use your tools to fetch information about the user's League of Legends and Teamfight Tactics questions"
         ),
         tools=[
             'riot_lol_match', 
@@ -63,7 +62,7 @@ context_registry: dict[str, Context] = {
             'get_puuid_by_discord_id'
         ],
         model='gpt-5-mini',
-        doc="Riot Games context: LoL/TFT stats, matches, and account linking.",
+        doc="Riot Games context: League of Legends (LOL), Teamfight Tactics (TFT), and stats about summoners / matches.",
     )
 }
 

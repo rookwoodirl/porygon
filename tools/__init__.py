@@ -104,6 +104,21 @@ def _function_to_schema(name: str, fn: Callable[..., str]) -> dict:
             pass
         return "string"
 
+    def _annotation_allows_none(annotation: object) -> bool:
+        """Return True if the annotation allows None (Optional/Union[..., None], or X | None)."""
+        try:
+            if annotation is inspect._empty:
+                return False
+            # Use typing.get_args which works for Optional, Union, and PEP 604 (X | None)
+            try:
+                from typing import get_args
+                args = get_args(annotation)
+            except Exception:
+                args = ()
+            return any(a is type(None) for a in args)
+        except Exception:
+            return False
+
     for param_name, param in sig.parameters.items():
         # Do not expose private metadata parameters in the schema sent to the model
         if param_name in PRIVATE_METADATA_KEYS:
@@ -114,7 +129,7 @@ def _function_to_schema(name: str, fn: Callable[..., str]) -> dict:
         json_type = _annotation_to_json_type(ann)
         desc = param_descriptions.get(param_name, f"Argument {param_name}")
         props[param_name] = {"type": json_type, "description": desc}
-        if param.default is inspect._empty:
+        if param.default is inspect._empty and not _annotation_allows_none(ann):
             required.append(param_name)
     return {
         "type": "function",

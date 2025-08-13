@@ -121,8 +121,11 @@ def _embed_for_text(text: str, title: str | None = None) -> discord.Embed:
     """Create a consistent embed for bot responses."""
     md = ['#', '*', '>']
     sounds = ['beep', 'boop', 'bzzt', 'beep boop boop beep', 'bzzt bzzt', 'brrrrrrr']
-    beep_boop = '\n'.join([ md[random.randint(0, len(md)-1)] + ' ' + sounds[random.randint(0, len(sounds)-1)] ])
-    text = text.replace('bzzt', '\n```md\n' + beep_boop + '\n```')
+    
+
+    while '\n\n' in text:
+        beep_boop = '\n'.join([ md[random.randint(0, len(md)-1)] + ' ' + sounds[random.randint(0, len(sounds)-1)] ])
+        text = text.replace('\n\n', '\n```md\n' + beep_boop + '\n```', 1)
     embed = discord.Embed(description=text, color=0x2F3136)
     if title:
         embed.title = title
@@ -238,7 +241,7 @@ def _record_billing(
                 context_name=context_name,
                 model=model,
                 prompt=json.dumps(messages, ensure_ascii=False),
-                tools=_extract_tool_names(tools),
+                tools=[ t['function']['name'] for t in tools ],
                 tokens_input=tokens_in,
                 tokens_output=tokens_out,
                 discord_user_id=discord_user_id,
@@ -517,7 +520,7 @@ async def _get_openai_reply(
                 # Update placeholder to indicate which tool is being called
                 try:
                     if placeholder_channel_id and placeholder_message_id:
-                        _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, f"calling {tool_name}...")
+                        _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, f"```md\n<calling {tool_name}...>\n```")
                 except Exception:
                     pass
 
