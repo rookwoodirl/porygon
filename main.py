@@ -195,21 +195,6 @@ def _is_directed_to_bot(message: discord.Message) -> bool:
 
     return False
 
-
-def _extract_tool_names(tool_schemas: list[dict] | None) -> list[str]:
-    names: list[str] = []
-    if not tool_schemas:
-        return names
-    for t in tool_schemas:
-        try:
-            fn = t.get('function', {})
-            if isinstance(fn, dict) and isinstance(fn.get('name'), str):
-                names.append(fn['name'])
-        except Exception:
-            continue
-    return names
-
-
 def _record_billing(
     context_name: str,
     model: str,
@@ -273,6 +258,32 @@ async def on_command_error(ctx, error):
     else:
         logger.error(f"An error occurred: {error}")
         await ctx.send(embed=_embed_for_text("An error occurred while processing the command."))
+
+@bot.command(name='pokedle')
+async def pokedle(ctx):
+    """Start a Pokedle game in a thread. Uses `games.pokedle.PokedleSession` if available."""
+    try:
+        import importlib
+        mod = importlib.import_module('games.pokedle')
+    except Exception:
+        await ctx.send(embed=_embed_for_text("Pokedle game is not available on this bot."))
+        return
+
+    PokedleSession = getattr(mod, 'PokedleSession', None)
+    if PokedleSession is None:
+        await ctx.send(embed=_embed_for_text("Pokedle module present but session class not found."))
+        return
+
+    try:
+        starter = await ctx.send(f"{ctx.author.mention} is starting a Pokedle game... creating thread...")
+        thread = await starter.create_thread(name=f"Pokedle — {ctx.author.display_name}", auto_archive_duration=60)
+        bot_msg = await thread.send("Preparing game...")
+        session = PokedleSession(bot, ctx.channel, ctx.author)
+        # run session as background task
+        asyncio.create_task(session.run(thread, bot_msg))
+        await ctx.send(embed=_embed_for_text(f"Pokedle started in thread {thread.mention}"))
+    except Exception as e:
+        await ctx.send(embed=_embed_for_text(f"Failed to start Pokedle: {e}"))
 
 @bot.command(name='ping')
 async def ping(ctx):
@@ -520,7 +531,7 @@ async def _get_openai_reply(
                 # Update placeholder to indicate which tool is being called
                 try:
                     if placeholder_channel_id and placeholder_message_id:
-                        _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, f"```md\n<calling {tool_name}...>\n```")
+                        _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, f"\n```md\n<calling {tool_name}...>\n```\n")
                 except Exception:
                     pass
 
