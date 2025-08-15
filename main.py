@@ -5,7 +5,6 @@ import logging
 import inspect
 import re
 import discord
-import random
 from discord.ext import commands
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -18,6 +17,10 @@ from tools import get_tool_functions
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from db.models import Billing
+from util.embeds import embed_for_text
+from commands.basic import setup_basic_commands
+from commands.pokedle import setup_pokedle_commands
+from commands.lolcustom import setup_lolcustom
 
 # Load environment variables from .env file
 load_dotenv()
@@ -117,19 +120,7 @@ def _extract_message_text(message: discord.Message) -> str:
     except Exception:
         return ""
 
-def _embed_for_text(text: str, title: str | None = None) -> discord.Embed:
-    """Create a consistent embed for bot responses."""
-    md = ['#', '*', '>']
-    sounds = ['beep', 'boop', 'bzzt', 'beep boop boop beep', 'bzzt bzzt', 'brrrrrrr']
-    
-
-    while '\n\n' in text:
-        beep_boop = '\n'.join([ md[random.randint(0, len(md)-1)] + ' ' + sounds[random.randint(0, len(sounds)-1)] ])
-        text = text.replace('\n\n', '\n```md\n' + beep_boop + '\n```', 1)
-    embed = discord.Embed(description=text, color=0x2F3136)
-    if title:
-        embed.title = title
-    return embed
+_embed_for_text = embed_for_text
 
 
 async def _edit_message_embed(channel_id: str | int, message_id: str | int, text: str, title: str | None = None) -> None:
@@ -259,42 +250,10 @@ async def on_command_error(ctx, error):
         logger.error(f"An error occurred: {error}")
         await ctx.send(embed=_embed_for_text("An error occurred while processing the command."))
 
-@bot.command(name='pokedle')
-async def pokedle(ctx):
-    """Start a Pokedle game in a thread. Uses `games.pokedle.PokedleSession` if available."""
-    try:
-        import importlib
-        mod = importlib.import_module('games.pokedle')
-    except Exception:
-        await ctx.send(embed=_embed_for_text("Pokedle game is not available on this bot."))
-        return
-
-    PokedleSession = getattr(mod, 'PokedleSession', None)
-    if PokedleSession is None:
-        await ctx.send(embed=_embed_for_text("Pokedle module present but session class not found."))
-        return
-
-    try:
-        starter = await ctx.send(f"{ctx.author.mention} is starting a Pokedle game... creating thread...")
-        thread = await starter.create_thread(name=f"Pokedle — {ctx.author.display_name}", auto_archive_duration=60)
-        bot_msg = await thread.send("Preparing game...")
-        session = PokedleSession(bot, ctx.channel, ctx.author)
-        # run session as background task
-        asyncio.create_task(session.run(thread, bot_msg))
-        await ctx.send(embed=_embed_for_text(f"Pokedle started in thread {thread.mention}"))
-    except Exception as e:
-        await ctx.send(embed=_embed_for_text(f"Failed to start Pokedle: {e}"))
-
-@bot.command(name='ping')
-async def ping(ctx):
-    """Simple ping command to test bot responsiveness."""
-    latency = round(bot.latency * 1000)
-    await ctx.send(embed=_embed_for_text(f'Pong! Latency: {latency}ms'))
-
-@bot.command(name='hello')
-async def hello(ctx):
-    """Say hello to the user."""
-    await ctx.send(embed=_embed_for_text(f'Hello {ctx.author.mention}! I am Porygon, your Discord bot!'))
+# Register commands from command modules
+setup_basic_commands(bot)
+setup_pokedle_commands(bot)
+setup_lolcustom(bot)
 
 
 def _route_context_name(
