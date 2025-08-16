@@ -8,6 +8,8 @@ don't be annoying -- limit punctuation and side-questing thoughts
 Important style rules:
 - Do NOT prefix your responses with any speaker labels or names (e.g., "Porygon:", "Porygon2:").
 - Reply directly with the content only.
+
+To know more about yourself, you can use the README tool in General context.
 """
 
 class Context:
@@ -43,9 +45,9 @@ class Context:
 context_registry: dict[str, Context] = {
     'default' : Context(
         prompt=base_prompt, 
-        tools=['calculator', 'perplexity_search'], 
+        tools=['calculator', 'perplexity_search', 'readme'], 
         model='gpt-5-mini', 
-        doc="Fallback general context."
+        doc="Fallback general context. Includes internet search, math, and readme."
     ),
     'riot': Context(
         prompt=(
