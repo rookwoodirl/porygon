@@ -58,7 +58,7 @@ def get_tool_functions(names: List[str] | None = None) -> Dict[str, Callable[...
 
 
 def _function_to_schema(name: str, fn: Callable[..., str]) -> dict:
-    doc = inspect.getdoc(fn) or "Perform an action"
+    doc = inspect.getdoc(fn).split('Args')[0].strip() or "Perform an action"
     sig = inspect.signature(fn)
     props: Dict[str, dict] = {}
     required: List[str] = []
@@ -128,7 +128,11 @@ def _function_to_schema(name: str, fn: Callable[..., str]) -> dict:
         ann = param.annotation if param.annotation is not inspect._empty else inspect._empty
         json_type = _annotation_to_json_type(ann)
         desc = param_descriptions.get(param_name, f"Argument {param_name}")
-        props[param_name] = {"type": json_type, "description": desc}
+        schema_prop = {"type": json_type, "description": desc}
+        if json_type == "array":
+            # Provide a default item type to satisfy OpenAI function schema requirements
+            schema_prop["items"] = {"type": "string"}
+        props[param_name] = schema_prop
         if param.default is inspect._empty and not _annotation_allows_none(ann):
             required.append(param_name)
     return {
@@ -150,6 +154,8 @@ def get_tool_schemas(tool_names: List[str]) -> List[dict]:
     funcs = get_tool_functions(tool_names)
     return [_function_to_schema(name, fn) for name, fn in funcs.items()]
 
+TOOL_SCHEMAS = get_tool_schemas(get_tool_functions())
 
-__all__ = ["tool", "get_tool_functions", "get_tool_schemas", "TOOL_FUNCTIONS"]
+
+__all__ = ["tool", "TOOL_FUNCTIONS", "TOOL_SCHEMAS"]
 

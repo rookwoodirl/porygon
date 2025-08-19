@@ -8,12 +8,8 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from openai import OpenAI
-from context import (
-    get_context_by_name,
-    get_context_options,
-    get_default_context,
-)
-from tools import get_tool_functions
+
+from tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from db.models import Billing
@@ -77,14 +73,7 @@ def _get_billing_session_factory() -> sessionmaker | None:
     except Exception:
         _BillingSessionFactory = None
     return _BillingSessionFactory
-def _strip_name_prefixes(text: str) -> str:
-    if not isinstance(text, str):
-        return text
-    lowered = text.lstrip()
-    for prefix in ("Porygon:", "Porygon2:", "Porygon :", "Porygon2 :"):
-        if lowered.startswith(prefix):
-            return lowered[len(prefix):].lstrip()
-    return text
+
 
 
 def _extract_message_text(message: discord.Message) -> str:
@@ -256,76 +245,10 @@ setup_pokedle_commands(bot)
 setup_lolcustom(bot)
 
 
-def _route_context_name(
-    chat_history: list[dict] | None,
-    user_message: str,
-    discord_user_id: str | None = None,
-    discord_username: str | None = None,
-) -> str | None:
-    """Use a small model to pick a context name from the registry. Uses recent chat history plus the latest user message. Returns None for default."""
-    options = get_context_options()
-    if not options or not openai_client:
-        return None
+def get_context_options() -> list[dict]:
+    """Temporary stub for context routing; returns empty list to use default behavior."""
+    return []
 
-    option_block = "\n".join(f"- {opt['name']}: {opt['doc']}" for opt in options)
-    sys_msg = (
-        "You are a context router. Choose the single best context name from the list based on the user's message and recent conversation history.\n"
-        "If none clearly apply, output 'default'.\n"
-        "Output ONLY the name with no extra words."
-    )
-
-    # Build a concise conversation history string if provided
-    history_block = ""
-    try:
-        if chat_history:
-            parts: list[str] = []
-            for m in chat_history:
-                role = m.get("role", "user")
-                content = (m.get("content") or "").replace("\n", " ")
-                parts.append(f"{role}: {content}")
-            history_block = "\n".join(parts)
-    except Exception:
-        history_block = ""
-
-    user_msg = (
-        f"Contexts:\n{option_block}\n\n"
-        f"Conversation history:\n{history_block}\n\n"
-        f"Latest user message:\n{user_message}\n\n"
-        "Answer with just the context name."
-    )
-
-    try:
-        router_messages = [
-            {"role": "system", "content": sys_msg},
-            {"role": "user", "content": user_msg},
-        ]
-        resp = openai_client.chat.completions.create(
-            model=ROUTER_MODEL,
-            messages=router_messages,
-            max_completion_tokens=400,
-        )
-        # Record router billing as its own entry (orchestrator)
-        try:
-            _record_billing(
-                context_name="orchestrator",
-                model=ROUTER_MODEL,
-                messages=router_messages,
-                tools=None,
-                usage_obj=getattr(resp, 'usage', {}),
-                discord_user_id=discord_user_id,
-                discord_username=discord_username,
-            )
-        except Exception:
-            pass
-        name = (resp.choices[0].message.content or "").strip()
-        print('Chosen context: ', name)
-        if name.lower() == 'default' or not name:
-            return None
-        # ensure it exists
-        existing = {opt['name'] for opt in options}
-        return name if name in existing else None
-    except Exception:
-        return None
 
 
 async def _get_openai_reply(
@@ -333,235 +256,306 @@ async def _get_openai_reply(
     placeholder_channel_id: str | None = None,
     placeholder_message_id: str | None = None,
 ) -> str:
-    """Call OpenAI to generate a reply using provided context."""
+    """Call OpenAI to generate a reply using provided tools (no Context)."""
     if not openai_client:
         return "OpenAI API key is not configured. Please set OPENAI_API_KEY."
 
-    # Extract the latest user message and metadata from chat_history (list of discord.Message)
-    last_user_message: str = ""
-    discord_user_id: str | None = None
-    discord_username: str | None = None
+    # Last human message and metadata
     try:
-        for m in reversed(chat_history):
-            # Treat any message not authored by the bot as a user message
-            author = getattr(m, 'author', None)
-            is_bot = bool(author == bot.user or getattr(author, 'bot', False))
-            if not is_bot:
-                content_val = (getattr(m, 'content', '') or '').strip()
-                last_user_message = content_val
-                try:
-                    discord_user_id = str(getattr(author, 'id', '')) or None
-                    discord_username = getattr(author, 'display_name', None) or getattr(author, 'name', None)
-                except Exception:
-                    pass
-                break
+        last_human = next(m for m in reversed(chat_history) if not getattr(getattr(m, 'author', None), 'bot', False))
+    except StopIteration:
+        last_human = chat_history[-1] if chat_history else None
+
+    author_name = getattr(getattr(last_human, 'author', None), 'name', None)
+    author_id = getattr(getattr(last_human, 'author', None), 'id', None)
+    channel_id = getattr(getattr(last_human, 'channel', None), 'id', None)
+    message_id = getattr(last_human, 'id', None)
+    try:
+        attachments = list(getattr(last_human, 'attachments', []) or [])
     except Exception:
-        last_user_message = last_user_message or ""
-    
+        attachments = []
+
     metadata = {
-        'author_id' : discord_user_id,
-        'message_id' : m.id,
-        'channel_id' : m.channel.id,
-        'attachments' : m.attachments
+        "author_id": str(author_id) if author_id is not None else None,
+        "channel_id": str(channel_id) if channel_id is not None else None,
+        "message_id": str(message_id) if message_id is not None else None,
+        "attachments": attachments,
     }
 
-    # Prepare a lightweight history for routing (exclude the latest turn to avoid duplication)
-    router_history: list[dict] = []
-    try:
-        for m in list(chat_history)[:-1]:
-            author = getattr(m, 'author', None)
-            role = "assistant" if (author == bot.user or getattr(author, 'bot', False)) else "user"
-            author_name = getattr(author, 'display_name', None) or getattr(author, 'name', None) or "user"
-            content = _extract_message_text(m).replace("\n", " ")
-            if content:
-                router_history.append({"role": role, "content": f"{author_name}: {content}"})
-    except Exception:
-        router_history = []
-
-    # Route to a context based on registry docs using a small model
-    selected_name = await asyncio.to_thread(
-        _route_context_name,
-        router_history,
-        last_user_message,
-        discord_user_id,
-        discord_username,
-    )
-    ctx = get_context_by_name(selected_name) if selected_name else get_default_context()
-    system_prompt = ctx.prompt
-
-    # Build chat messages: prior history as separate turns, then the current user message
-    def build_messages():
-        """Converts discord chat history to openai message history."""
-        messages = [
-            {"role": "system", "content": system_prompt},
-        ]
-        # Append turns from chat_history (list of discord.Message)
-        for m in chat_history:
+    def _discord_to_openai_messages(discord_messages: list) -> list[dict]:
+        messages: list[dict] = []
+        for m in discord_messages:
             try:
-                author = getattr(m, 'author', None)
-                role = "assistant" if (author == bot.user or getattr(author, 'bot', False)) else "user"
-                author_name = getattr(author, 'display_name', None) or getattr(author, 'name', None) or "user"
-                content = _extract_message_text(m)
-                if not content:
+                role = 'assistant' if getattr(getattr(m, 'author', None), 'bot', False) else 'user'
+                text = _extract_message_text(m) or ""
+                if not text:
                     continue
-                # Add name prefix to aid multi-user disambiguation in channels
-                messages.append({"role": role, "content": f"{author_name}: {content}"})
+                messages.append({"role": role, "content": text})
             except Exception:
                 continue
         return messages
 
-    def _call_openai():
-        model_to_use = ctx.model
-        messages = build_messages()
-
+    async def _openai_call(messages: list[dict], model: str = 'gpt-5-mini', max_tokens: int = 2000, tools: list[dict] | None = None):
         kwargs = {
-            "model": model_to_use,
+            "model": model,
             "messages": messages,
-            "max_completion_tokens": ctx.max_completion_tokens,
+            "tools": tools or None,
+            "max_completion_tokens": max_tokens,
+        }
+        return await asyncio.to_thread(openai_client.chat.completions.create, **kwargs)
+
+    def _call_tool(tool_name: str, kwargs: dict) -> str:
+        fn = TOOL_FUNCTIONS.get(tool_name)
+        if not fn:
+            return f"Tool '{tool_name}' is not available."
+        try:
+            sig = inspect.signature(fn)
+            safe_kwargs: dict = {}
+            for key, value in (kwargs or {}).items():
+                if key in sig.parameters:
+                    safe_kwargs[key] = value
+            for key, value in metadata.items():
+                if key in sig.parameters and value is not None:
+                    safe_kwargs[key] = value
+            result = fn(**safe_kwargs)
+            return str(result) if result is not None else ""
+        except Exception as e:
+            return f"Error running tool '{tool_name}': {e}"
+
+    # Orchestrator selects tools and an execution prompt
+    async def _orchestrator(discord_messages: list) -> tuple[str, list[str]]:
+        tool_lines = []
+        for schema in TOOL_SCHEMAS:
+            try:
+                fn_name = schema.get('function', {}).get('name', '')
+                fn_desc = schema.get('function', {}).get('description', '')
+                if fn_name:
+                    tool_lines.append(f"- {fn_name}: {fn_desc}")
+            except Exception:
+                continue
+        convo = []
+        for m in discord_messages[-10:]:
+            try:
+                who = m.author.id
+                txt = (_extract_message_text(m) or '').replace('\n', ' ')
+                if txt:
+                    convo.append(f"{who}: {txt}")
+            except Exception:
+                continue
+        system_prompt = (
+            "Your goal is to summarize the context of this conversation into a prompt a subsequent model can complete."
+            "Response exclusively in valid JSON format:"
+            """
+            { "prompt" : "Complete this task...", "tools" : ["a", "b", "c", ...] }
+            """
+        )
+        user_prompt = (
+            "Available tools:\n" + "\n".join(tool_lines) + "\n\n" +
+            "Conversation (most recent last):\n" + "\n".join([c[:200] for c in convo]) + "\n\n" +
+            "Output JSON with keys 'prompt' (string) and 'tools' (array of tool names)."
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        all_tool_names = [
+            (s.get('function', {}) or {}).get('name')
+            for s in TOOL_SCHEMAS
+            if (s.get('function', {}) or {}).get('name')
+        ]
+        try:
+            resp = await _openai_call(messages, model=ROUTER_MODEL, max_tokens=400, tools=None)
+            try:
+                asyncio.create_task(asyncio.to_thread(
+                    _record_billing,
+                    context_name="orchestrator",
+                    model=ROUTER_MODEL,
+                    messages=messages,
+                    tools=None,
+                    usage_obj=getattr(resp, 'usage', {}),
+                    discord_user_id=str(author_id) if author_id is not None else None,
+                    discord_username=str(author_name) if author_name else None,
+                ))
+            except Exception:
+                pass
+            content = (resp.choices[0].message.content or "").strip()
+            json_text = content
+            print('json_text:', json_text)
+            try:
+                import re as _re
+                m = _re.search(r"\{[\s\S]*\}", content)
+                if m:
+                    json_text = m.group(0)
+            except Exception:
+                pass
+            if not json_text:
+                last_user_text = (_extract_message_text(last_human) or "").strip() if last_human else ""
+                default_prompt = (
+                    "You are a helpful Discord assistant. Be concise and helpful. "
+                    f"Respond to the user's latest message: {last_user_text}"
+                )
+                return default_prompt, all_tool_names
+            data = json.loads(json_text)
+            prompt_text = str(data.get('prompt', '')).strip()
+            tool_names = [t for t in (data.get('tools') or []) if isinstance(t, str)]
+            print('Prompt:', prompt_text)
+            print('Tools:', ', '.join(tool_names))
+            if not prompt_text:
+                last_user_text = (_extract_message_text(last_human) or "").strip() if last_human else ""
+                prompt_text = (
+                    "You are a helpful Discord assistant. Be concise and helpful. "
+                    f"Respond to the user's latest message: {last_user_text}"
+                )
+            if not tool_names:
+                tool_names = []
+            return prompt_text, tool_names
+        except Exception as e:
+            print(e)
+            return (
+                "You are a helpful assistant for Discord. Answer succinctly and safely.",
+                []
+            )
+
+    prompt_text, selected_tool_names = await _orchestrator(chat_history)
+    name_to_schema = {s.get('function', {}).get('name'): s for s in TOOL_SCHEMAS}
+    selected_tool_schemas = [name_to_schema[n] for n in selected_tool_names if n in name_to_schema]
+
+    executor_messages: list[dict] = []
+    if prompt_text:
+        executor_messages.append({"role": "system", "content": prompt_text})
+    executor_messages.extend(_discord_to_openai_messages(chat_history))
+
+    def _serialize_tool_call(tc) -> dict:
+        try:
+            tc_id = getattr(tc, 'id', None) or tc.get('id')
+        except Exception:
+            tc_id = None
+        try:
+            fn_obj = getattr(tc, 'function', None) or tc.get('function', {})
+            fn_name = getattr(fn_obj, 'name', None) or fn_obj.get('name')
+            fn_args = getattr(fn_obj, 'arguments', None) or fn_obj.get('arguments')
+        except Exception:
+            fn_name, fn_args = None, None
+        return {
+            "id": tc_id,
+            "type": "function",
+            "function": {
+                "name": fn_name,
+                "arguments": fn_args if isinstance(fn_args, str) else json.dumps(fn_args or {}),
+            },
         }
 
-        if getattr(ctx, "tools", None):
-            kwargs["tools"] = ctx.tools  # type: ignore[assignment]
-            kwargs["tool_choice"] = "auto"
-
-        # Iterative loop: model -> (optional) tool calls -> model, up to max iterations
-        max_iterations = 3
-        tool_funcs = get_tool_functions()
-        for iteration in range(max_iterations):
-            # Ensure kwargs messages reflect current messages list
-            kwargs["messages"] = messages
-            resp = openai_client.chat.completions.create(**kwargs)
-            try:
-                _record_billing(
-                    context_name=selected_name or "default",
-                    model=model_to_use,
-                    messages=messages,
-                    tools=ctx.tools if hasattr(ctx, 'tools') else None,
-                    usage_obj=getattr(resp, 'usage', {}),
-                    discord_user_id=discord_user_id,
-                    discord_username=discord_username,
-                )
-            except Exception:
-                pass
-
-            if not resp.choices:
-                return ""
-            msg = resp.choices[0].message
-
-            # If no tool calls, return content (and update placeholder if present)
-            tool_calls = getattr(msg, "tool_calls", None)
-            content_only = _strip_name_prefixes((msg.content or "").strip())
-            if not tool_calls:
-                try:
-                    if placeholder_channel_id and placeholder_message_id:
-                        _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, content_only)
-                except Exception:
-                    pass
-                return content_only
-
-            # Add assistant message that includes tool_calls
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": msg.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.function.name,
-                                "arguments": tc.function.arguments,
-                            },
-                        }
-                        for tc in tool_calls
-                    ],
-                }
-            )
-
-            # Execute tools locally and append tool results
-            for tc in tool_calls:
-                tool_name = tc.function.name
-                raw_args = tc.function.arguments or "{}"
-                try:
-                    args = json.loads(raw_args)
-                except Exception:
-                    args = {}
-
-                # Update placeholder to indicate which tool is being called
-                try:
-                    if placeholder_channel_id and placeholder_message_id:
-                        _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, f"\n```md\n<calling {tool_name}...>\n```\n")
-                except Exception:
-                    pass
-
-                result_text = f"Tool '{tool_name}' not available."
-                fn = tool_funcs.get(tool_name)
-                if fn:
-                    try:
-                        # Inject requesting_discord_id only if the function accepts that parameter
-                        try:
-                            sig = inspect.signature(fn)
-
-                            # update toolcall with metadata the bot might not have access to
-                            if isinstance(args, dict):
-                                args.update({ k : v for k, v in metadata.items() if k in sig.parameters })
-                            
-                        except Exception:
-                            # If signature inspection fails, skip injection
-                            pass
-
-                        result_text = fn(**args)
-                    except Exception as e:
-                        result_text = f"Error executing tool '{tool_name}': {e}"
-
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "name": tool_name,
-                        "content": result_text,
-                    }
-                )
-
-            # Continue loop for next model call which will include the appended tool results
-
-        # If we exit the loop without a model response without tool_calls, make one final call
+    response = None
+    for iteration in range(5):
+        response = await _openai_call(
+            executor_messages,
+            model=os.getenv('CHAT_MODEL', 'gpt-5-mini'),
+            max_tokens=2000,
+            tools=selected_tool_schemas or None,
+        )
         try:
-            kwargs["messages"] = messages
-            final_resp = openai_client.chat.completions.create(
-                model=model_to_use,
-                messages=messages,
-                max_completion_tokens=ctx.max_completion_tokens,
-            )
+            asyncio.create_task(asyncio.to_thread(
+                _record_billing,
+                context_name="execution",
+                model=os.getenv('CHAT_MODEL', 'gpt-5-mini'),
+                messages=executor_messages,
+                tools=selected_tool_schemas or None,
+                usage_obj=getattr(response, 'usage', {}),
+                discord_user_id=str(author_id) if author_id is not None else None,
+                discord_username=str(author_name) if author_name else None,
+            ))
+        except Exception:
+            pass
+
+        choice_msg = response.choices[0].message
+        tool_calls = getattr(choice_msg, 'tool_calls', None) or []
+        content_text = (getattr(choice_msg, 'content', None) or "").strip()
+
+
+        if not tool_calls:
+            return content_text or ""
+
+        # Append the assistant tool call message
+        assistant_msg = {
+            "role": "assistant",
+            "content": content_text,
+            "tool_calls": [_serialize_tool_call(tc) for tc in tool_calls],
+        }
+        executor_messages.append(assistant_msg)
+
+        # Execute each tool and append tool results
+        tc_iterations = 0
+        for tc in tool_calls:
+            tc_iterations += 1
             try:
-                _record_billing(
-                    context_name=selected_name or "default",
-                    model=model_to_use,
-                    messages=messages,
-                    tools=ctx.tools if hasattr(ctx, 'tools') else None,
-                    usage_obj=getattr(final_resp, 'usage', {}),
-                    discord_user_id=discord_user_id,
-                    discord_username=discord_username,
-                )
+                fn_obj = getattr(tc, 'function', None) or tc.get('function', {})
+                tool_name = getattr(fn_obj, 'name', None) or fn_obj.get('name')
+                raw_args = getattr(fn_obj, 'arguments', None) or fn_obj.get('arguments')
+            except Exception:
+                tool_name, raw_args = None, None
+            try:
+                args_obj = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+            except Exception:
+                args_obj = {}
+            # Update placeholder with tool call details
+            if placeholder_channel_id and placeholder_message_id:
+                try:
+                    headline = f'!iteration {iteration} / 5, tool_call {tc_iterations} / {len(tool_calls)}'
+                    pretty_args = '\n\t'.join([f'{k} : {str(v)[:20]}' for k, v in (args_obj or {}).items()])
+                    
+                    _schedule_edit_placeholder(
+                        placeholder_channel_id,
+                        placeholder_message_id,
+                        f"Running tools...\n```yaml\n{headline}\n{tool_name or 'unknown_tool'}\n\t{pretty_args}```"
+                    )
+                except Exception:
+                    pass
+            # Build safe kwargs and inject metadata when accepted
+            fn = TOOL_FUNCTIONS.get(tool_name or "")
+            if fn is None:
+                result_text = "Tool not available"
+            else:
+                try:
+                    sig = inspect.signature(fn)
+                    safe_kwargs: dict = {}
+                    for key, value in (args_obj or {}).items():
+                        if key in sig.parameters:
+                            safe_kwargs[key] = value
+                    for key, value in metadata.items():
+                        if key in sig.parameters and value is not None:
+                            safe_kwargs[key] = value
+                    result_text = await asyncio.to_thread(fn, **safe_kwargs)
+                except Exception as e:
+                    result_text = f"Error running tool '{tool_name}': {e}"
+            tool_msg = {"role": "tool", "content": str(result_text)}
+            try:
+                tool_msg["tool_call_id"] = getattr(tc, 'id', None) or tc.get('id')
             except Exception:
                 pass
-            final = _strip_name_prefixes((final_resp.choices[0].message.content or "").strip()) if getattr(final_resp, 'choices', None) else ""
-            try:
-                if placeholder_channel_id and placeholder_message_id:
-                    _schedule_edit_placeholder(placeholder_channel_id, placeholder_message_id, final)
-            except Exception:
-                pass
-            logger.info("response: %s", final_resp.choices[0].message.content if getattr(final_resp, 'choices', None) else None)
-            return final
-        except Exception as e:
-            logger.error(f"OpenAI error: {e}")
-            return ""
+            executor_messages.append(tool_msg)
 
     try:
-        return await asyncio.to_thread(_call_openai)
-    except Exception as e:  # pragma: no cover
-        logger.error(f"OpenAI error: {e}")
-        return "Sorry, I couldn't generate a response right now."
+        names = []
+        for tc in (getattr(response.choices[0].message, 'tool_calls', None) or []):
+            try:
+                fn_obj = getattr(tc, 'function', None) or tc.get('function', {})
+                nm = getattr(fn_obj, 'name', None) or fn_obj.get('name')
+                if nm:
+                    names.append(nm)
+            except Exception:
+                continue
+        names_str = ", ".join(names)
+    except Exception:
+        names_str = ""
+    return f"I tried to resolve your request but couldn't complete it via tools ({names_str}). Please try again."
+
+        
+
+
+    
+
+
+
 
 
 @bot.event
@@ -601,7 +595,7 @@ async def on_message(message: discord.Message):
     # Send an initial hourglass embed so users see we are working
     placeholder_msg = None
     try:
-        placeholder_msg = await message.reply(embed=_embed_for_text("⌛ working..."))
+        placeholder_msg = await message.reply(embed=_embed_for_text("```md\n<thinking ...>```"))
     except Exception:
         placeholder_msg = None
 
